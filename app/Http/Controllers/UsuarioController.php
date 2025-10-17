@@ -83,6 +83,8 @@ class UsuarioController extends Controller
                 'usuario.id_usuario',
                 'usuario.nombre',
                 'usuario.apellido',
+                'usuario.dni',
+                'usuario.correo',
                 // Subconsulta para sucursales únicas
                 DB::raw('(SELECT json_agg(json_build_object(
                 \'id_sucursal\', suc.id_sucursal,

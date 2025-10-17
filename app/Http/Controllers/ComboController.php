@@ -8,6 +8,7 @@ use App\Models\Combo;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
+use Carbon\Carbon;
 
 class ComboController extends Controller
 {
@@ -17,6 +18,37 @@ class ComboController extends Controller
         $combo = DB::table('combo')
             ->leftJoin('combo_producto', 'combo.id_combo', '=', 'combo_producto.id_combo')
             ->leftJoin('producto', 'combo_producto.id_producto', '=', 'producto.id_producto')
+            ->where('combo.activo', true)
+            ->select(
+                'combo.id_combo',
+                'combo.codigo',
+                'combo.nombre',
+                'combo.costo',
+                'combo.duracion',
+                DB::raw('json_agg(json_build_object(
+                \'producto\',producto.producto,
+                \'cantidad\',combo_producto.cantidad
+                )) as productos')
+            )
+            ->groupBy('combo.id_combo')
+            ->get();
+
+        // Decodificar la cadena JSON del array productos
+        $combo = $combo->map(function ($item) {
+            $item->productos = json_decode($item->productos);
+            return $item;
+        });
+
+
+        return response()->json($combo);
+    }
+
+    public function mostrarDesactivados()
+    {
+        $combo = DB::table('combo')
+            ->leftJoin('combo_producto', 'combo.id_combo', '=', 'combo_producto.id_combo')
+            ->leftJoin('producto', 'combo_producto.id_producto', '=', 'producto.id_producto')
+            ->where('combo.activo', false)
             ->select(
                 'combo.id_combo',
                 'combo.codigo',
@@ -111,7 +143,7 @@ class ComboController extends Controller
             ], 422);
         }
         $datosValidos = $request->validated();
-    
+
 
         $combo = Combo::findOrFail($id);
         $combo->update($datosValidos);
@@ -134,6 +166,7 @@ class ComboController extends Controller
         $where = DB::table('combo')
             ->leftJoin('combo_producto', 'combo.id_combo', '=', 'combo_producto.id_combo')
             ->leftJoin('producto', 'combo_producto.id_producto', '=', 'producto.id_producto')
+            ->where('combo.activo', true)
             ->select(
                 'combo.id_combo',
                 'combo.codigo',
@@ -168,21 +201,66 @@ class ComboController extends Controller
         return response()->json($result);
     }
 
-    public function buscar (Request $request){
+    public function buscar(Request $request)
+    {
         $termino = $request->termino;
         $tipoBusqueda = $request->tipoBusquedaCombo;
-    
-    
-        if($tipoBusqueda!=null && $tipoBusqueda=== 'Nombre'){
-          $resultados = Combo::whereRaw('LOWER(nombre) LIKE ?', ['%' . strtolower($termino) . '%'])
-          ->get();
+
+
+        if ($tipoBusqueda != null && $tipoBusqueda === 'Nombre') {
+            $resultados = Combo::whereRaw('LOWER(nombre) LIKE ?', ['%' . strtolower($termino) . '%'])
+                ->get();
         }
-        if($tipoBusqueda!=null && $tipoBusqueda=== 'Codigo'){
-          $resultados = Combo::whereRaw('LOWER(codigo) LIKE ?', ['%' .strtolower($termino). '%'])
-          ->get();
+        if ($tipoBusqueda != null && $tipoBusqueda === 'Codigo') {
+            $resultados = Combo::whereRaw('LOWER(codigo) LIKE ?', ['%' . strtolower($termino) . '%'])
+                ->get();
         }
-    
-    
+
+
         return response()->json($resultados);
-      }
+    }
+
+    public function desactivar($id)
+    {
+        $combo = Combo::findOrFail($id);
+        $combo->activo = false;
+        $combo->save();
+
+        return response()->json([
+            'message' => 'Combo desactivado correctamente',
+            'combo' => $combo
+        ]);
+    }
+
+    public function activar($id, Request $request)
+{
+    // Convertir fecha al formato correcto
+  /*  if ($request->has('nuevo_vencimiento')) {
+        try {
+            $fecha = Carbon::createFromFormat('d/m/Y', $request->nuevo_vencimiento);
+            $request->merge(['nuevo_vencimiento' => $fecha->format('Y-m-d')]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'errors' => ['nuevo_vencimiento' => ['El formato de la fecha no es válido (use dd/mm/yyyy).']]
+            ], 422);
+        }
+    }
+*/
+    $request->validate([
+        'nuevo_vencimiento' => 'required|date|after:today',
+    ], [
+        'nuevo_vencimiento.required' => 'Ingrese una fecha',
+        'nuevo_vencimiento.after' => 'La fecha de duración debe ser posterior al día actual.',
+    ]);
+
+    $combo = Combo::findOrFail($id);
+    $combo->duracion = $request->nuevo_vencimiento;
+    $combo->activo = true;
+    $combo->save();
+
+    return response()->json([
+        'message' => 'Combo activado correctamente',
+        'combo' => $combo
+    ]);
+}
 }

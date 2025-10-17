@@ -21,4 +21,16 @@ class Permiso extends Model
                set: fn (string $value) => strtolower($value),
         );
     }
+
+   // Relación muchos a muchos con Rol
+    public function roles()
+{
+    return $this->belongsToMany(
+        Rol::class,
+        'rol_permiso',
+        'id_permiso',
+        'id_rol'
+    );
+}
+
 }

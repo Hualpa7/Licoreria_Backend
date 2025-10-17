@@ -134,4 +134,14 @@ class CompraController extends Controller
 
         return $where->get();
     }
+
+    public function obtenerAnios()
+{
+    $anios = Compra::selectRaw('EXTRACT(YEAR FROM fecha) as anio')
+        ->distinct()
+        ->orderBy('anio')
+        ->pluck('anio');
+
+    return response()->json($anios);
+}
 }

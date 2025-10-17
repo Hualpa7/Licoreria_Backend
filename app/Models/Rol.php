@@ -21,5 +21,17 @@ class Rol extends Model
         );
     }
 
+    // Relación muchos a muchos con Permiso
+    public function permisos()
+{
+    return $this->belongsToMany(
+        Permiso::class,
+        'rol_permiso',   // tabla pivote
+        'id_rol',        // FK local
+        'id_permiso'     // FK relacionada
+    );
+}
+
+
     
 }
