@@ -8,6 +8,8 @@ use App\Http\Requests\UpdateProductoRequest;
 use Illuminate\Http\Request;
 use App\Models\Producto;
 use App\Models\Proveedor;
+use Exception;
+use Tymon\JWTAuth\Facades\JWTAuth;
 
 class ProductoController extends Controller
 {
@@ -59,32 +61,53 @@ class ProductoController extends Controller
 
 
   public function show($id)
-  {/*
-        $producto = Producto::select(
-                'producto.*',
-                DB::raw('COALESCE(SUM(stock.cantidad), 0) as stock'),
-                'categoria.nombre_categoria',
-                'marca.nombre_marca'
-            )
-            ->leftJoin('stock', 'producto.id_producto', '=', 'stock.id_producto')
-            ->leftJoin('categoria','producto.id_categoria','=','categoria.id_categoria')
-            ->leftJoin('marca','producto.id_marca','=','marca.id_marca')
-            ->where('producto.id_producto', $id)
-            ->groupBy('producto.id_producto','categoria.nombre_categoria', 'marca.nombre_marca')
-            ->first(); // Devuelve solo el primer resultado, ya que esperamos un único producto
-    
-        return $producto; // Devuelve el producto con el ID <especificado></especificado>
-        
-        SI HAGO LA RELACIONES DE MODELOS LA CONSULTA QUEDARIA MUCHO MAS SENCILLA:*/
+  {
+
+    /* SI HAGO LA RELACIONES DE MODELOS LA CONSULTA QUEDARIA MUCHO MAS SENCILLA:*/
 
 
-    $producto = Producto::with(['categoria', 'marca','descuento']) //tablas categoria y marca
+    $producto = Producto::with(['categoria', 'marca', 'descuento']) //tablas categoria y marca
       ->withSum('stock as stock', 'cantidad') //se trata de sumar los valores de cantidad de la tabla stock
       ->findOrFail($id); // Encuentra el producto o lanza un error si no existe
 
     $producto->stock = $producto->stock ?? 0; //si no hay registros con ese id_prdcuto se retorna 0
 
     return $producto;
+  }
+
+  public function mostrar2($id, Request $request)
+  {
+
+    try {
+      //Autenticar usuario desde el token
+      $usuario = JWTAuth::parseToken()->authenticate();
+
+      // Si NO es superadmin (id_rol <> 5), usa la sucursal del token
+      // Si es superadmin, valida que haya una sucursal recibida en el request
+      if ($usuario->id_rol != 5) {
+        $idSucursal = $usuario->id_sucursal;
+      } else {
+        $request->validate([
+          'id_sucursal' => 'required|exists:sucursal,id_sucursal'
+        ]);
+        $idSucursal = $request->id_sucursal;
+      }
+
+      $producto = Producto::with(['categoria', 'marca', 'descuento'])
+        ->withSum(['stock as stock' => function ($query) use ($idSucursal) {
+          $query->where('id_sucursal', $idSucursal);
+        }], 'cantidad')
+        ->findOrFail($id);
+
+      $producto->stock = $producto->stock ?? 0; //si no hay registros con ese id_prdcuto se retorna 0
+
+      return $producto;
+    } catch (\Exception $e) {
+      return response()->json([
+        'error' => 'Error al filtrar productos.',
+        'detalle' => $e->getMessage()
+      ], 500);
+    }
   }
 
 
@@ -124,57 +147,130 @@ class ProductoController extends Controller
 
   public function filtro(Request $request)
   {
+    try {
+      //Autenticar usuario desde el token
+      $usuario = JWTAuth::parseToken()->authenticate();
 
-     $where = Producto::with(['descuento'])
-     ->withSum('stock as stock', 'cantidad'); //se trata de sumar los valores de cantidad de la tabla stock
-      
+      // Si NO es superadmin (id_rol <> 5), usa la sucursal del token
+      // Si es superadmin, valida que haya una sucursal recibida en el request
+      if ($usuario->id_rol != 5) {
+        $idSucursal = $usuario->id_sucursal;
+      } else {
+        $request->validate([
+          'id_sucursal' => 'required|exists:sucursal,id_sucursal'
+        ]);
+        $idSucursal = $request->id_sucursal;
+      }
 
-    //$where = $where->select(['producto', 'costo']);
+      // Construir la consulta base
+      $query = Producto::with('descuento')
+        ->withSum(['stock' => function ($subQuery) use ($idSucursal) {
+          // Filtra stock solo por la sucursal correspondiente
+          $subQuery->where('id_sucursal', $idSucursal);
+        }], 'cantidad');
 
-    // $where = Producto::select(['producto','costo']);
+      //  Aplicar filtros opcionales
+      if ($request->id_marca != null)
+        $query->where('id_marca', $request->id_marca);
 
-    if ($request->id_marca != null)
-      $where = $where->where('id_marca', $request->id_marca);
+      if ($request->id_categoria != null)
+        $query->where('id_categoria', $request->id_categoria);
 
-    if ($request->id_categoria != null)
-      $where = $where->where('id_categoria', $request->id_categoria);
+      if ($request->busqueda && $request->tipo === "Nombre")
+        $query->whereRaw('LOWER(producto) LIKE ?', ['%' . strtolower($request->busqueda) . '%']);
 
-    if (($request->busqueda && ($request->tipo === "Nombre")) != null){
-     // $where = $where->where('producto', 'like','%'.strtolower($request->busqueda).'%');
-      $where = $where->whereRaw('producto LIKE ?', ['%' . strtolower($request->busqueda) . '%']);
+      if ($request->busqueda && $request->tipo === "Codigo")
+        $query->whereRaw('LOWER(codigo) LIKE ?', ['%' . strtolower($request->busqueda) . '%']);
+
+      // Obtener resultados
+      $productos = $query->get();
+
+      // Normalizar el campo de stock (por compatibilidad frontend)
+      $productos->each(function ($producto) {
+        $producto->stock = $producto->stock_sum_cantidad ?? 0;
+        unset($producto->stock_sum_cantidad); // para no duplicar campos
+      });
+
+      return response()->json($productos);
+    } catch (\Exception $e) {
+      return response()->json([
+        'error' => 'Error al filtrar productos.',
+        'detalle' => $e->getMessage()
+      ], 500);
     }
-
-    if (($request->busqueda && ($request->tipo === "Codigo")) != null)
-     // $where = $where->where('codigo',  'like','%'.$request->busqueda.'%');
-     $where = $where->whereRaw('LOWER(codigo) LIKE ?', ['%' . strtolower($request->busqueda) . '%']); //LOWE PARA convertir en minusculas
-
-
-    /*if ($request->costo != null)
-      $where = $where->where('costo', $request->costo[0], $request->costo[1]);
-*/
-    //  $where = $where->orderBy('producto');
-
-    //  $tamanioPagina = $request->tamanioPagina != null ? $request->tamanioPagina : 10;
-
-    //  return $where->get();
-    return $where->get();
   }
 
-  public function buscar (Request $request){
+  public function buscar(Request $request)
+  {
     $termino = $request->termino;
     $tipoBusqueda = $request->tipoBusquedaProducto;
 
 
-    if($tipoBusqueda!=null && $tipoBusqueda=== 'Nombre'){
+    if ($tipoBusqueda != null && $tipoBusqueda === 'Nombre') {
       $resultados = Producto::whereRaw('producto LIKE ?', ['%' . strtolower($termino) . '%'])
-      ->get();
+        ->get();
     }
-    if($tipoBusqueda!=null && $tipoBusqueda=== 'Codigo'){
-      $resultados = Producto::whereRaw('LOWER(codigo) LIKE ?', ['%' .strtolower($termino). '%'])
-      ->get();
+    if ($tipoBusqueda != null && $tipoBusqueda === 'Codigo') {
+      $resultados = Producto::whereRaw('LOWER(codigo) LIKE ?', ['%' . strtolower($termino) . '%'])
+        ->get();
     }
 
 
     return response()->json($resultados);
+  }
+
+  public function transferir(Request $request)
+  {
+    $request->validate([
+      'id_producto' => 'required|integer|exists:producto,id_producto',
+      'cantidad' => 'required|integer|min:1',
+      'sucursalOrigen' => 'required|integer|exists:sucursal,id_sucursal',
+      'sucursalDestino' => 'required|integer|exists:sucursal,id_sucursal|different:sucursalOrigen',
+    ]);
+
+    try {
+      DB::transaction(function () use ($request) {
+
+        // Verificamos stock disponible en la sucursal origen
+        $stockOrigen = DB::table('stock')
+          ->where('id_producto', $request->id_producto)
+          ->where('id_sucursal', $request->sucursalOrigen)
+          ->sum('cantidad');
+
+        if ($stockOrigen < $request->cantidad) {
+          throw new Exception("No hay stock suficiente del producto en la sucursal de origen.");
+        }
+
+        // Creamos un identificador único de transferencia
+        $idTransferencia = DB::table('stock')->max('id_transferencia') + 1;
+
+        // Restamos stock en sucursal origen (salida)
+        DB::table('stock')->insert([
+          'cantidad' => -$request->cantidad,
+          'tipo' => 'Transferencia',
+          'observaciones' => 'Salida a sucursal ' . $request->sucursalDestino,
+          'id_producto' => $request->id_producto,
+          'id_sucursal' => $request->sucursalOrigen,
+          'id_transferencia' => $idTransferencia,
+        ]);
+
+        // Sumamos stock en sucursal destino (entrada)
+        DB::table('stock')->insert([
+          'cantidad' => $request->cantidad,
+          'tipo' => 'Transferencia',
+          'observaciones' => 'Entrada desde sucursal ' . $request->sucursalOrigen,
+          'id_producto' => $request->id_producto,
+          'id_sucursal' => $request->sucursalDestino,
+          'id_transferencia' => $idTransferencia,
+        ]);
+      });
+
+      return response()->json(['message' => 'Transferencia realizada correctamente.'], 201);
+    } catch (Exception $e) {
+      return response()->json([
+        'error' => 'Error al realizar la transferencia.',
+        'detalle' => $e->getMessage()
+      ], 400);
+    }
   }
 }

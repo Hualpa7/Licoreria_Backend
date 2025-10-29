@@ -24,7 +24,6 @@ class StoreDescuentoRequest extends FormRequest
         return [
             'duracion' => 'required|date|after:today',
             'porcentaje' => 'required|integer',
-            'id_sucursal' => 'required|integer|exists:sucursal,id_sucursal'
         ];
     }
 
@@ -32,7 +31,7 @@ class StoreDescuentoRequest extends FormRequest
     {
         return [
             'duracion.after' => 'La fecha de duración debe ser posterior al día actual.',
-            'id_sucursal.exists' => 'La sucursal no existe.',
+            'duracion.required' => 'Ingrese duración.',
              'porcentaje.required' => 'Ingrese porcentaje.'
         ];
     }

@@ -9,6 +9,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Carbon\Carbon;
+use Tymon\JWTAuth\Facades\JWTAuth;
 
 class ComboController extends Controller
 {
@@ -43,57 +44,104 @@ class ComboController extends Controller
         return response()->json($combo);
     }
 
-    public function mostrarDesactivados()
+    public function mostrarDesactivados(Request $request)
     {
-        $combo = DB::table('combo')
-            ->leftJoin('combo_producto', 'combo.id_combo', '=', 'combo_producto.id_combo')
-            ->leftJoin('producto', 'combo_producto.id_producto', '=', 'producto.id_producto')
-            ->where('combo.activo', false)
-            ->select(
-                'combo.id_combo',
-                'combo.codigo',
-                'combo.nombre',
-                'combo.costo',
-                'combo.duracion',
-                DB::raw('json_agg(json_build_object(
+
+        try {
+            //Autenticar usuario desde el token
+            $usuario = JWTAuth::parseToken()->authenticate();
+
+            // Si NO es superadmin (id_rol <> 5), usa la sucursal del token
+            // Si es superadmin, valida que haya una sucursal recibida en el request
+            if ($usuario->id_rol != 5) {
+                $idSucursal = $usuario->id_sucursal;
+            } else {
+                $request->validate([
+                    'id_sucursal' => 'required|exists:sucursal,id_sucursal'
+                ]);
+                $idSucursal = $request->id_sucursal;
+            }
+            $combo = DB::table('combo')
+                ->where('combo.id_sucursal', $idSucursal) //filtro por sucursal obligatoriamente
+                ->leftJoin('combo_producto', 'combo.id_combo', '=', 'combo_producto.id_combo')
+                ->leftJoin('producto', 'combo_producto.id_producto', '=', 'producto.id_producto')
+                ->where('combo.activo', false)
+                ->select(
+                    'combo.id_combo',
+                    'combo.codigo',
+                    'combo.nombre',
+                    'combo.costo',
+                    'combo.duracion',
+                    DB::raw('json_agg(json_build_object(
                 \'producto\',producto.producto,
                 \'cantidad\',combo_producto.cantidad
                 )) as productos')
-            )
-            ->groupBy('combo.id_combo')
-            ->get();
+                )
+                ->groupBy('combo.id_combo')
+                ->get();
 
-        // Decodificar la cadena JSON del array productos
-        $combo = $combo->map(function ($item) {
-            $item->productos = json_decode($item->productos);
-            return $item;
-        });
+            // Decodificar la cadena JSON del array productos
+            $combo = $combo->map(function ($item) {
+                $item->productos = json_decode($item->productos);
+                return $item;
+            });
 
 
-        return response()->json($combo);
+            return response()->json($combo);
+        } catch (\Exception $e) {
+            return response()->json([
+                'error' => 'Error al ontener combos desactivados.',
+                'detalle' => $e->getMessage()
+            ], 500);
+        }
     }
 
 
     public function store(StoreComboRequest $request)
     {
+
         $datosValidos = $request->validated();
+        try {
+            // Autenticar usuario desde el token
+            $usuario = JWTAuth::parseToken()->authenticate();
 
-        DB::transaction(function () use ($datosValidos, $request) { //envolvemos todo en una transaccion para que se haga tanto 
-            //la creacion del combo como el registro en la tabla combo_producto
-            $combo = Combo::create($datosValidos);
-
-            $productos = $request->input('productos', []); //obtenemos el array productos del request
-
-            foreach ($productos as $producto) { //para cada uno de los productos del array, los vinculo con el id_combo creado
-                DB::table('combo_producto')->insert([
-                    'id_combo' => $combo->id_combo,
-                    'id_producto' => $producto['id_producto'],
-                    'cantidad' => $producto['cantidad']
+            // Determinar sucursal según el rol
+            if ($usuario->id_rol != 5) {
+                $idSucursal = $usuario->id_sucursal;
+            } else {
+                $request->validate([
+                    'id_sucursal' => 'required|exists:sucursal,id_sucursal'
                 ]);
+                $idSucursal = $request->id_sucursal;
             }
-        });
 
-        return response()->json(['message' => 'Combo creado exitosamente'], 201);
+
+            DB::transaction(function () use ($datosValidos, $request,$idSucursal) { //envolvemos todo en una transaccion para que se haga tanto 
+                //la creacion del combo como el registro en la tabla combo_producto
+    
+                $combo = Combo::create(array_merge($datosValidos, [
+                    'id_sucursal' => $idSucursal
+                ]));
+
+                $productos = $request->input('productos', []); //obtenemos el array productos del request
+
+                foreach ($productos as $producto) { //para cada uno de los productos del array, los vinculo con el id_combo creado
+                    DB::table('combo_producto')->insert([
+                        'id_combo' => $combo->id_combo,
+                        'id_producto' => $producto['id_producto'],
+                        'cantidad' => $producto['cantidad']
+                    ]);
+                }
+            });
+
+            return response()->json(['message' => 'Combo creado exitosamente'], 201);
+        } catch (\Exception $e) {
+            // Capturamos cualquier error dentro de la transacción
+            return response()->json([
+                'error' => 'Error al crear combo.',
+                'detalle' => $e->getMessage(), // <-- mensaje personalizado
+            ], 400);
+        }
     }
 
 
@@ -163,42 +211,60 @@ class ComboController extends Controller
     public function filtro(Request $request)
     {
 
-        $where = DB::table('combo')
-            ->leftJoin('combo_producto', 'combo.id_combo', '=', 'combo_producto.id_combo')
-            ->leftJoin('producto', 'combo_producto.id_producto', '=', 'producto.id_producto')
-            ->where('combo.activo', true)
-            ->select(
-                'combo.id_combo',
-                'combo.codigo',
-                'combo.nombre',
-                'combo.costo',
-                'combo.duracion',
-                DB::raw('json_agg(json_build_object(
+        try {
+            //Autenticar usuario desde el token
+            $usuario = JWTAuth::parseToken()->authenticate();
+
+            // Si NO es superadmin (id_rol <> 5), usa la sucursal del token
+            // Si es superadmin, valida que haya una sucursal recibida en el request
+            if ($usuario->id_rol != 5) {
+                $idSucursal = $usuario->id_sucursal;
+            } else {
+                $request->validate([
+                    'id_sucursal' => 'required|exists:sucursal,id_sucursal'
+                ]);
+                $idSucursal = $request->id_sucursal;
+            }
+
+            $where = DB::table('combo')
+                ->where('combo.id_sucursal', $idSucursal) //filtro por sucursal obligatoriamente
+                ->leftJoin('combo_producto', 'combo.id_combo', '=', 'combo_producto.id_combo')
+                ->leftJoin('producto', 'combo_producto.id_producto', '=', 'producto.id_producto')
+                ->where('combo.activo', true)
+                ->select(
+                    'combo.id_combo',
+                    'combo.codigo',
+                    'combo.nombre',
+                    'combo.costo',
+                    'combo.duracion',
+                    DB::raw('json_agg(json_build_object(
             \'producto\',producto.producto,
             \'cantidad\',combo_producto.cantidad
             )) as productos')
-            )
-            ->groupBy('combo.id_combo');
+                )
+                ->groupBy('combo.id_combo');
 
 
 
-        if (($request->busqueda && ($request->tipo === "Combo")) != null) {
-            $where = $where->whereRaw('nombre LIKE ?', ['%' . strtolower($request->busqueda) . '%']);
+            if (($request->busqueda && ($request->tipo === "Combo")) != null) {
+                $where = $where->whereRaw('nombre LIKE ?', ['%' . strtolower($request->busqueda) . '%']);
+            }
+
+            $result = $where->get();
+
+            // Decodificar productos antes de enviar la respuesta
+            $result->transform(function ($item) {
+                $item->productos = json_decode($item->productos);
+                return $item;
+            });
+
+            return response()->json($result);
+        } catch (\Exception $e) {
+            return response()->json([
+                'error' => 'Error al filtrar combos.',
+                'detalle' => $e->getMessage()
+            ], 500);
         }
-
-
-
-
-
-        $result = $where->get();
-
-        // Decodificar productos antes de enviar la respuesta
-        $result->transform(function ($item) {
-            $item->productos = json_decode($item->productos);
-            return $item;
-        });
-
-        return response()->json($result);
     }
 
     public function buscar(Request $request)
@@ -233,9 +299,9 @@ class ComboController extends Controller
     }
 
     public function activar($id, Request $request)
-{
-    // Convertir fecha al formato correcto
-  /*  if ($request->has('nuevo_vencimiento')) {
+    {
+        // Convertir fecha al formato correcto
+        /*  if ($request->has('nuevo_vencimiento')) {
         try {
             $fecha = Carbon::createFromFormat('d/m/Y', $request->nuevo_vencimiento);
             $request->merge(['nuevo_vencimiento' => $fecha->format('Y-m-d')]);
@@ -246,21 +312,21 @@ class ComboController extends Controller
         }
     }
 */
-    $request->validate([
-        'nuevo_vencimiento' => 'required|date|after:today',
-    ], [
-        'nuevo_vencimiento.required' => 'Ingrese una fecha',
-        'nuevo_vencimiento.after' => 'La fecha de duración debe ser posterior al día actual.',
-    ]);
+        $request->validate([
+            'nuevo_vencimiento' => 'required|date|after:today',
+        ], [
+            'nuevo_vencimiento.required' => 'Ingrese una fecha',
+            'nuevo_vencimiento.after' => 'La fecha de duración debe ser posterior al día actual.',
+        ]);
 
-    $combo = Combo::findOrFail($id);
-    $combo->duracion = $request->nuevo_vencimiento;
-    $combo->activo = true;
-    $combo->save();
+        $combo = Combo::findOrFail($id);
+        $combo->duracion = $request->nuevo_vencimiento;
+        $combo->activo = true;
+        $combo->save();
 
-    return response()->json([
-        'message' => 'Combo activado correctamente',
-        'combo' => $combo
-    ]);
-}
+        return response()->json([
+            'message' => 'Combo activado correctamente',
+            'combo' => $combo
+        ]);
+    }
 }

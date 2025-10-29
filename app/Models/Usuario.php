@@ -38,7 +38,9 @@ class Usuario extends Authenticatable implements JWTSubject
         return [
             'correo' => $this['correo'],
             'contraseña' => $this['contraseña'],
-            'id_usuario' => $this['id_usuario']
+            'id_usuario' => $this['id_usuario'],
+            'id_rol' => $this['id_rol'],
+            'id_sucursal' => $this['id_sucursal'],
         ];
     }
 

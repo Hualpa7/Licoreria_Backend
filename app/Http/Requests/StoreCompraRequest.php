@@ -24,7 +24,6 @@ class StoreCompraRequest extends FormRequest
         return [
             'total' => 'required|regex:/^\d+(\,\d{1,2})?$/',
             'id_proveedor' => 'required|integer|exists:proveedor,id_proveedor',
-            'id_sucursal' => 'required|integer|exists:sucursal,id_sucursal',
             'id_producto' => 'required|integer|exists:producto,id_producto',
             'cantidad' => 'required'
         ];
@@ -35,7 +34,6 @@ class StoreCompraRequest extends FormRequest
         return [
             'total.regex' => 'El valor debe ser un numero decimal con 2 decimales',
             'id_proveedor.exists' => 'El proveedor al que realizo la compra no esta registrado',
-            'id_sucursal.exists' => 'La sucursal no existe'
         ];
     }
 }

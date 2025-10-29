@@ -75,9 +75,12 @@ Route::middleware('checkPermiso:vender')->post('/venta', [VentaController::class
 Route::resource('/producto',ProductoController::class) ->except(['store', 'update']);
 Route::post('/producto/filtro', [ProductoController::class,'filtro']);
 Route::post('/producto/buscar', [ProductoController::class,'buscar']);
+Route::post('/producto/{id}/mostrar2', [ProductoController::class,'mostrar2']);
 //ruta de Porducto con middleware de permiso
 Route::middleware('checkPermiso:crear producto')->post('/producto', [ProductoController::class, 'store']);
 Route::middleware('checkPermiso:modificar producto')->put('/producto/{id}', [ProductoController::class, 'update']);
+Route::middleware('checkPermiso:transferir producto')->post('/producto/transferir', [ProductoController::class, 'transferir']);
+
 
 //RUTAS PROTEGIDAS DE SUCURSAL
 Route::resource('/sucursal',SucursalController::class) ->except(['store', 'update']);
@@ -116,7 +119,7 @@ Route::middleware('checkPermiso:crear descuento')->delete('/descuento/{id}', [De
 
 
 //RUTAS PROTEGIDAS DE COMBO
-Route::get('/combo/mostrarDesactivados', [ComboController::class,'mostrarDesactivados']);
+Route::post('/combo/mostrarDesactivados', [ComboController::class,'mostrarDesactivados']);
 Route::resource('/combo',ComboController::class) ->except(['store', 'update']);
 Route::post('/combo/filtro', [ComboController::class,'filtro']);
 Route::post('/combo/buscar', [ComboController::class,'buscar']);
