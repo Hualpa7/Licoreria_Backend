@@ -87,4 +87,6 @@ class PermisoController extends Controller
             ], 500);
         }
     }
+
+    
 }

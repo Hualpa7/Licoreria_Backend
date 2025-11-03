@@ -116,9 +116,9 @@ class ComboController extends Controller
             }
 
 
-            DB::transaction(function () use ($datosValidos, $request,$idSucursal) { //envolvemos todo en una transaccion para que se haga tanto 
+            DB::transaction(function () use ($datosValidos, $request, $idSucursal) { //envolvemos todo en una transaccion para que se haga tanto 
                 //la creacion del combo como el registro en la tabla combo_producto
-    
+
                 $combo = Combo::create(array_merge($datosValidos, [
                     'id_sucursal' => $idSucursal
                 ]));
@@ -210,13 +210,11 @@ class ComboController extends Controller
 
     public function filtro(Request $request)
     {
-
         try {
-            //Autenticar usuario desde el token
+            // Autenticar usuario desde el token
             $usuario = JWTAuth::parseToken()->authenticate();
 
-            // Si NO es superadmin (id_rol <> 5), usa la sucursal del token
-            // Si es superadmin, valida que haya una sucursal recibida en el request
+            // Determinar sucursal
             if ($usuario->id_rol != 5) {
                 $idSucursal = $usuario->id_sucursal;
             } else {
@@ -227,7 +225,7 @@ class ComboController extends Controller
             }
 
             $where = DB::table('combo')
-                ->where('combo.id_sucursal', $idSucursal) //filtro por sucursal obligatoriamente
+                ->where('combo.id_sucursal', $idSucursal)
                 ->leftJoin('combo_producto', 'combo.id_combo', '=', 'combo_producto.id_combo')
                 ->leftJoin('producto', 'combo_producto.id_producto', '=', 'producto.id_producto')
                 ->where('combo.activo', true)
@@ -238,21 +236,20 @@ class ComboController extends Controller
                     'combo.costo',
                     'combo.duracion',
                     DB::raw('json_agg(json_build_object(
-            \'producto\',producto.producto,
-            \'cantidad\',combo_producto.cantidad
-            )) as productos')
+                    \'producto\', producto.producto,
+                    \'cantidad\', combo_producto.cantidad
+                )) as productos')
                 )
                 ->groupBy('combo.id_combo');
 
-
-
-            if (($request->busqueda && ($request->tipo === "Combo")) != null) {
-                $where = $where->whereRaw('nombre LIKE ?', ['%' . strtolower($request->busqueda) . '%']);
+            // 🔍 Aplica filtro si hay texto en búsqueda
+            if ($request->filled('busqueda')) {
+                $where->whereRaw('LOWER(combo.nombre) LIKE ?', ['%' . strtolower($request->busqueda) . '%']);
             }
 
             $result = $where->get();
 
-            // Decodificar productos antes de enviar la respuesta
+            // Decodificar productos
             $result->transform(function ($item) {
                 $item->productos = json_decode($item->productos);
                 return $item;

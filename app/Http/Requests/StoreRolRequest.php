@@ -22,14 +22,19 @@ class StoreRolRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'nombre_rol' => 'required|unique:roles,nombre_rol|max:100'
+            'nombre_rol' => 'required|unique:roles,nombre_rol|max:100',
+            'permisos' => 'required|array|min:1', // Array obligatorio con al menos 1 elemento
+            'permisos.*' => 'integer|exists:permisos,id_permiso', // cada elemento debe existir
         ];
     }
 
     public function messages(): array
     {
         return [
-            'nombre_rol.unique' => 'El rol ya existe, ingrese uno diferente.'
+            'nombre_rol.unique' => 'El rol ya existe, ingrese uno diferente.',
+            'permisos.required' => 'Debe seleccionar al menos un permiso.',
+            'permisos.min' => 'Debe seleccionar al menos un permiso.',
+            'permisos.*.exists' => 'Uno de los permisos seleccionados no es válido.',
         ];
     }
 }

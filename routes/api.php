@@ -65,6 +65,7 @@ Route::post('/compra/filtro', [CompraController::class,'filtro']);
 Route::middleware('checkPermiso:comprar')->post('/compra', [CompraController::class, 'store']);
 
 //RUTAS PROTEGIDAS DE VENTA
+Route::get('/venta/cantidadTotalVentas', [VentaController::class,'cantidadTotalVentas']);
 Route::get('/venta/anios', [VentaController::class,'obtenerAnios']);
 Route::resource('/venta',VentaController::class) ->except(['store']); 
 Route::post('/venta/filtro', [VentaController::class,'filtro']);
@@ -95,6 +96,7 @@ Route::post('/usuario/iniciarSesion', [UsuarioController::class,'login']);
 //rutas de Usuario con middleware de permiso
 Route::middleware('checkPermiso:crear usuario')->post('/usuario/registrar', [UsuarioController::class, 'register']);
 Route::middleware('checkPermiso:crear usuario')->put('/usuario/{id}', [UsuarioController::class, 'update']);
+Route::middleware('checkPermiso:modificar permisos')->post('/usuario/{id}/permisos_extra', [UsuarioController::class, 'actualizarPermisosExtra']);
 //rutas de Usuario con middleware autenticacion
 Route::middleware([JwtMiddleware::class])->group(function () {
     Route::post('/usuario/cerrarSesion', [UsuarioController::class,'logout']);
@@ -131,7 +133,7 @@ Route::middleware('checkPermiso:crear combo')->post('/combo/{id}/activar', [Comb
 
 //RUTAS PROTEGIDAS DE ROL
 Route::resource('/rol',RolController::class) ->except(['store', 'update', 'destroy']);
-//ruta de Rol con middleware de permiso
+//ruta de Rol con middleware de rol
 Route::middleware('checkPermiso:crear rol')->post('/rol', [RolController::class, 'store']);
 Route::middleware('checkPermiso:crear rol')->put('/rol/{id}', [RolController::class, 'update']);
 Route::middleware('checkPermiso:crear rol')->delete('/rol/{id}', [RolController::class, 'destroy']);

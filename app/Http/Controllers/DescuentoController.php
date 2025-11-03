@@ -137,11 +137,10 @@ class DescuentoController extends Controller
     public function filtro(Request $request)
     {
         try {
-            //Autenticar usuario desde el token
+            // Autenticar usuario desde el token
             $usuario = JWTAuth::parseToken()->authenticate();
 
-            // Si NO es superadmin (id_rol <> 5), usa la sucursal del token
-            // Si es superadmin, valida que haya una sucursal recibida en el request
+            // Determinar sucursal según el rol
             if ($usuario->id_rol != 5) {
                 $idSucursal = $usuario->id_sucursal;
             } else {
@@ -151,9 +150,8 @@ class DescuentoController extends Controller
                 $idSucursal = $request->id_sucursal;
             }
 
-
-
-            $where = Descuento::Join('producto', 'descuento.id_descuento', '=', 'producto.id_descuento')
+            // Construir consulta base
+            $where = Descuento::join('producto', 'descuento.id_descuento', '=', 'producto.id_descuento')
                 ->where('descuento.id_sucursal', $idSucursal)
                 ->select(
                     'descuento.id_descuento',
@@ -163,18 +161,15 @@ class DescuentoController extends Controller
                     'descuento.duracion'
                 );
 
-
-            if (($request->busqueda && ($request->tipo === "Producto")) != null) {
-                $where = $where->whereRaw('producto LIKE ?', ['%' . strtolower($request->busqueda) . '%']);
+            // ✅ Aplica filtro solo si hay texto en "busqueda"
+            if ($request->filled('busqueda')) {
+                $where->whereRaw('LOWER(producto.producto) LIKE ?', ['%' . strtolower($request->busqueda) . '%']);
             }
-
-
-
 
             return $where->get();
         } catch (\Exception $e) {
             return response()->json([
-                'error' => 'Error al filtrar ventas.',
+                'error' => 'Error al filtrar descuentos.',
                 'detalle' => $e->getMessage()
             ], 500);
         }

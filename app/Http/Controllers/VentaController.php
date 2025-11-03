@@ -129,7 +129,7 @@ class VentaController extends Controller
             }
 
             DB::transaction(function () use ($datosValidos, $request, $idSucursal, $idUsuario) {
-                 $venta = Venta::create(array_merge($datosValidos, ['id_sucursal' => $idSucursal, 'id_usuario' => $idUsuario]));
+                $venta = Venta::create(array_merge($datosValidos, ['id_sucursal' => $idSucursal, 'id_usuario' => $idUsuario]));
 
                 foreach ($request->productos as $item) {
                     if ($item['esCombo']) {
@@ -389,5 +389,22 @@ class VentaController extends Controller
             ->pluck('anio');
 
         return response()->json($anios);
+    }
+
+    
+     // Obtiene la cantidad total de ventas
+     
+    public function cantidadTotalVentas()
+    {
+        try {
+            $cantidadTotalVentas = Venta::count();
+
+            return response()->json($cantidadTotalVentas, 200);
+        } catch (\Exception $e) {
+            return response()->json([
+                'error' => 'Error al obtener la cantidad total de ventas',
+                'detalle' => $e->getMessage()
+            ], 500);
+        }
     }
 }
