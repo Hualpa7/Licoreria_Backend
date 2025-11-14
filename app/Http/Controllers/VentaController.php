@@ -391,9 +391,9 @@ class VentaController extends Controller
         return response()->json($anios);
     }
 
-    
-     // Obtiene la cantidad total de ventas
-     
+
+    // Obtiene la cantidad total de ventas
+
     public function cantidadTotalVentas()
     {
         try {
@@ -404,6 +404,177 @@ class VentaController extends Controller
             return response()->json([
                 'error' => 'Error al obtener la cantidad total de ventas',
                 'detalle' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    public function generarInforme(Request $request)
+    {
+        try {
+            $usuario = JWTAuth::parseToken()->authenticate();
+
+            $validated = $request->validate([
+                'periodo_ventas' => 'nullable|string',
+                'id_sucursal' => 'nullable|integer',
+                'fecha_desde' => 'nullable|date',
+                'fecha_hasta' => 'nullable|date',
+                'metodo_pago' => 'nullable|string',
+            ]);
+
+            
+
+
+            //  Filtrar por sucursal según rol
+            if ($usuario->id_rol != 5) {
+                $validated['id_sucursal'] = $usuario->id_sucursal;
+            } else {
+                $request->validate([
+                    'id_sucursal' => 'required|exists:sucursal,id_sucursal'
+                ]);
+            }
+
+
+
+            // AJUSTO FILTROS DEPENDIENDO EL PERIDO DE VENTAS MANDANDO DESDE FRONTEND
+            if ($request->periodo_ventas !== null) {
+                if (
+                    $request->periodo_ventas === "Ver ventas desde el" &&
+                    $request->fecha_desde !== null && $request->fecha_hasta !== null
+                ) {
+
+                    $validated['fecha_desde'] = Carbon::parse($request->fecha_desde)->startOfDay();
+                    $validated['fecha_hasta'] = Carbon::parse($request->fecha_hasta)->endOfDay();
+                } elseif (
+                    $request->periodo_ventas === "Ventas del mes de" &&
+                    $request->mes_venta !== null && $request->anio_venta !== null
+                ) {
+
+                    // Si es un mes y año específicos, se calculan los límites del mes
+                    $validated['fecha_desde'] = Carbon::create($request->anio_venta, $request->mes_venta, 1)->startOfMonth();
+                    $validated['fecha_hasta'] = Carbon::create($request->anio_venta, $request->mes_venta, 1)->endOfMonth();
+                } elseif ($request->periodo_ventas === "Todas las ventas") {
+                    // 🔥 Caso clave: si se elige "todas las ventas", no se aplican fechas
+                    $validated['fecha_desde'] = null;
+                    $validated['fecha_hasta'] = null;
+                }
+            }
+
+            //  Obtenemos ventas filtradas
+            $ventas = DB::table('venta')
+                ->join('usuario', 'venta.id_usuario', '=', 'usuario.id_usuario')
+                ->select(
+                    'venta.id_venta',
+                    'venta.fecha',
+                    'venta.total',
+                    'venta.descuento_gral',
+                    'venta.id_sucursal',
+                    'venta.metodo_pago',
+                    'usuario.nombre as vendedor'
+                )
+                ->when($validated['id_sucursal'] ?? null, fn($q, $id) => $q->where('venta.id_sucursal', $id))
+                ->when($validated['metodo_pago'] ?? null, fn($q, $mp) => $q->where('venta.metodo_pago', strtolower($mp)))
+                ->when($validated['fecha_desde'] ?? null, fn($q, $f) => $q->whereDate('venta.fecha', '>=', $f))
+                ->when($validated['fecha_hasta'] ?? null, fn($q, $f) => $q->whereDate('venta.fecha', '<=', $f))
+                ->orderBy('venta.fecha', 'asc')
+                ->get();
+
+            if ($ventas->isEmpty()) {
+                return response()->json([
+                    'mensaje' => 'No hay ventas registradas en el período seleccionado.',
+                    'metricas' => [
+                        'total_vendido' => 0,
+                        'cantidad_ventas' => 0,
+                        'productos_vendidos' => 0,
+                        'combos_vendidos' => 0,
+                    ],
+                    'productos_mas_vendidos' => [],
+                    'combos_mas_vendidos' => [],
+                    'ventas_por_fecha' => [],
+                    'top_vendedores' => [],
+                ]);
+            }
+
+            //  Calculamos métricas
+            $totalVendido = $ventas->sum(fn($v) => $v->total * (1 - ($v->descuento_gral / 100))); //sumo el tota lde todas las ventas con sus descuentos
+            $cantidadVentas = $ventas->count(); //sumo cantidad de ventas
+
+            //  Total de productos vendidos
+            $cantProductosVendidos = DB::table('venta_producto')
+                ->join('venta', 'venta.id_venta', '=', 'venta_producto.id_venta')
+                ->when($validated['id_sucursal'] ?? null, fn($q, $id) => $q->where('venta.id_sucursal', $id))
+                ->when($validated['fecha_desde'] ?? null, fn($q, $f) => $q->whereDate('venta.fecha', '>=', $f))
+                ->when($validated['fecha_hasta'] ?? null, fn($q, $f) => $q->whereDate('venta.fecha', '<=', $f))
+                ->sum('venta_producto.cantidad');
+
+            // Total de combos vendidos
+            $cantCombosVendidos = DB::table('venta_combo')
+                ->join('venta', 'venta.id_venta', '=', 'venta_combo.id_venta')
+                ->when($validated['id_sucursal'] ?? null, fn($q, $id) => $q->where('venta.id_sucursal', $id))
+                ->when($validated['fecha_desde'] ?? null, fn($q, $f) => $q->whereDate('venta.fecha', '>=', $f))
+                ->when($validated['fecha_hasta'] ?? null, fn($q, $f) => $q->whereDate('venta.fecha', '<=', $f))
+                ->sum('venta_combo.cantidad');
+
+            // 🧍Top vendedores
+            $topVendedores = $ventas
+                ->groupBy('vendedor')
+                ->map(fn($v) => $v->count())
+                ->sortDesc()
+                ->take(3) //tomo solo los primeros 3
+                ->map(fn($count, $nombre) => ['nombre' => $nombre, 'ventas' => $count])
+                ->values();
+
+            //  Ventas por fecha
+            $ventasPorFecha = $ventas
+                ->groupBy(fn($v) => date('Y-m-d', strtotime($v->fecha)))
+                ->map(fn($ventasDia) => [
+                    'fecha' => date('d/m', strtotime($ventasDia->first()->fecha)),
+                    'Total' => round($ventasDia->sum(fn($v) => $v->total * (1 - ($v->descuento_gral / 100))), 2),
+                ])
+                ->values();
+
+            //  Productos más vendidos
+            $productosMasVendidos = DB::table('venta_producto')
+                ->join('producto', 'producto.id_producto', '=', 'venta_producto.id_producto')
+                ->join('venta', 'venta.id_venta', '=', 'venta_producto.id_venta')
+                ->when($validated['id_sucursal'] ?? null, fn($q, $id) => $q->where('venta.id_sucursal', $id))
+                ->when($validated['fecha_desde'] ?? null, fn($q, $f) => $q->whereDate('venta.fecha', '>=', $f))
+                ->when($validated['fecha_hasta'] ?? null, fn($q, $f) => $q->whereDate('venta.fecha', '<=', $f))
+                ->select('producto.producto', DB::raw('SUM(venta_producto.cantidad) as cantidad'))
+                ->groupBy('producto.producto')
+                ->orderByDesc('cantidad')
+                ->limit(5)
+                ->get();
+
+            //  Combos más vendidos
+            $combosMasVendidos = DB::table('venta_combo')
+                ->join('combo', 'combo.id_combo', '=', 'venta_combo.id_combo')
+                ->join('venta', 'venta.id_venta', '=', 'venta_combo.id_venta')
+                ->when($validated['id_sucursal'] ?? null, fn($q, $id) => $q->where('venta.id_sucursal', $id))
+                ->when($validated['fecha_desde'] ?? null, fn($q, $f) => $q->whereDate('venta.fecha', '>=', $f))
+                ->when($validated['fecha_hasta'] ?? null, fn($q, $f) => $q->whereDate('venta.fecha', '<=', $f))
+                ->select('combo.nombre', DB::raw('SUM(venta_combo.cantidad) as cantidad'))
+                ->groupBy('combo.nombre')
+                ->orderByDesc('cantidad')
+                ->limit(5)
+                ->get();
+
+            return response()->json([
+                'metricas' => [
+                    'total_vendido' => round($totalVendido, 2),
+                    'cantidad_ventas' => $cantidadVentas,
+                    'productos_vendidos' => $cantProductosVendidos,
+                    'combos_vendidos' => $cantCombosVendidos,
+                ],
+                'productos_mas_vendidos' => $productosMasVendidos,
+                'combos_mas_vendidos' => $combosMasVendidos,
+                'ventas_por_fecha' => $ventasPorFecha,
+                'top_vendedores' => $topVendedores,
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'error' => 'Error al generar informe',
+                'detalle' => $e->getMessage(),
+                'linea' => $e->getLine(),
             ], 500);
         }
     }

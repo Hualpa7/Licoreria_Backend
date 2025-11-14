@@ -69,8 +69,11 @@ Route::get('/venta/cantidadTotalVentas', [VentaController::class,'cantidadTotalV
 Route::get('/venta/anios', [VentaController::class,'obtenerAnios']);
 Route::resource('/venta',VentaController::class) ->except(['store']); 
 Route::post('/venta/filtro', [VentaController::class,'filtro']);
+
+
 //ruta de Venta con middleware de permiso
 Route::middleware('checkPermiso:vender')->post('/venta', [VentaController::class, 'store']);
+Route::middleware('checkPermiso:ver informe')->post('/venta/informe', [VentaController::class, 'generarInforme']);
 
 //RUTAS PROTEGIDAS DE PRODUCTO
 Route::resource('/producto',ProductoController::class) ->except(['store', 'update']);
