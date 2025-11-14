@@ -236,19 +236,19 @@ class UsuarioController extends Controller
         try {
             DB::beginTransaction();
 
-            // 1️⃣ Obtener los permisos extra actuales del usuario
+            //  Obtener los permisos extra actuales del usuario
             $permisosActuales = DB::table('permisos_extra')
                 ->where('id_usuario', $id_usuario)
                 ->pluck('id_permiso')
                 ->toArray();
 
-            // 2️⃣ Calcular permisos a insertar (los que vienen en $permisosExtra pero no están)
+            //  Calcular permisos a insertar (los que vienen en $permisosExtra pero no están)
             $permisosParaInsertar = array_diff($permisosExtra, $permisosActuales);
 
-            // 3️⃣ Calcular permisos a eliminar (los que están actualmente pero no vienen en $permisosExtra)
+            //  Calcular permisos a eliminar (los que están actualmente pero no vienen en $permisosExtra)
             $permisosParaEliminar = array_diff($permisosActuales, $permisosExtra);
 
-            // 4️⃣ Insertar nuevos permisos
+            //  Insertar nuevos permisos
             $insertData = [];
             foreach ($permisosParaInsertar as $idPermiso) {
                 $insertData[] = [
@@ -262,7 +262,7 @@ class UsuarioController extends Controller
                 DB::table('permisos_extra')->insert($insertData);
             }
 
-            // 5️⃣ Eliminar permisos que ya no deben existir
+            //  Eliminar permisos que ya no deben existir
             if (!empty($permisosParaEliminar)) {
                 DB::table('permisos_extra')
                     ->where('id_usuario', $id_usuario)

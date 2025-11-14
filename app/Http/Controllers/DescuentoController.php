@@ -15,17 +15,22 @@ class DescuentoController extends Controller
 
     public function index()
     {
-        $descuento = Descuento::Join('producto', 'descuento.id_descuento', '=', 'producto.id_descuento')
+        $descuentos = DB::table('descuento')
+            ->join('producto_descuento', 'descuento.id_descuento', '=', 'producto_descuento.id_descuento')
+            ->join('producto', 'producto_descuento.id_producto', '=', 'producto.id_producto')
             ->select(
                 'descuento.id_descuento',
-                'producto.producto',
+                DB::raw("INITCAP(producto.producto) as producto"),
                 'producto.costo',
                 'descuento.porcentaje',
-                'descuento.duracion'
+                'descuento.duracion',
+                'producto_descuento.id_sucursal'
             )
             ->get();
-        return $descuento; // Devuelve todos los descuentos
+
+        return $descuentos;
     }
+
 
     public function store(StoreDescuentoRequest $request)
     {
@@ -45,58 +50,61 @@ class DescuentoController extends Controller
                 $idSucursal = $request->id_sucursal;
             }
 
-            DB::transaction(function () use ($datosValidos, $request, $idSucursal) { //envuelvo todo en una transaccion para que se carguen los registros
-                //de manera simultanea 
+            DB::transaction(function () use ($datosValidos, $request, $idSucursal) {
+                $idProducto = $request->id_producto;
 
-                $idProducto = $request->id_producto; //obtenemos el id_producto recibido en el request
+                // Verificamos si ya existe un descuento para ese producto en esa sucursal
+                $existe = DB::table('producto_descuento')
+                    ->where('id_producto', $idProducto)
+                    ->where('id_sucursal', $idSucursal)
+                    ->exists();
 
-                $producto = DB::table('producto')->where('id_producto', $idProducto)->first(); //Verificamos de que el producto no tenga descuento previo
-                if ($producto && $producto->id_descuento) { //preguntamos si id_descuento no es nulo
-                    return response()->json([
-                        'error' => 'Este producto ya tiene un descuento asignado y no puede tener más de uno.'
-                    ], 422);
+                if ($existe) {
+                    throw new \Exception('Este producto ya tiene un descuento asignado en esta sucursal.');
                 }
 
-                // Creamos el descuento incluyendo el id_sucursal
-                $descuento = Descuento::create(array_merge($datosValidos, [
-                    'id_sucursal' => $idSucursal
-                ]));
+                // Creamos el descuento
+                $descuento = Descuento::create($datosValidos);
 
-
-                DB::table('producto')
-                    ->where('id_producto', $idProducto)
-                    ->update(['id_descuento' => $descuento->id_descuento]);
-
+                // Asignamos el producto al descuento mediante la tabla intermedia
+                DB::table('producto_descuento')->insert([
+                    'id_producto' => $idProducto,
+                    'id_descuento' => $descuento->id_descuento,
+                    'id_sucursal' => $idSucursal,
+                ]);
 
                 return response()->json($descuento, 201);
             });
         } catch (\Exception $e) {
-            // Capturamos cualquier error dentro de la transacción
             return response()->json([
-                'error' => 'Error al crear desceuento.',
-                'detalle' => $e->getMessage(), // <-- mensaje personalizado
+                'error' => 'Error al crear descuento.',
+                'detalle' => $e->getMessage()
             ], 400);
         }
     }
 
 
 
-
     public function show(string $id)
     {
         $descuento = DB::table('descuento')
-            ->where('descuento.id_descuento', $id)
-            ->join('producto', 'descuento.id_descuento', '=', 'producto.id_descuento')
+            ->join('producto_descuento', 'descuento.id_descuento', '=', 'producto_descuento.id_descuento')
+            ->join('producto', 'producto_descuento.id_producto', '=', 'producto.id_producto')
             ->select(
                 'descuento.id_descuento',
                 DB::raw("INITCAP(producto.producto) as producto"), // Convierte a mayúscula la primera letra de cada palabra
                 'producto.costo',
                 'descuento.porcentaje',
-                'descuento.duracion'
-            );
+                'descuento.duracion',
+                'producto_descuento.id_sucursal'
+            )
+            ->where('descuento.id_descuento', $id)
+            ->first();
 
-        return $descuento->first(); // Devuelve todos los descuentos
+        return $descuento;
     }
+
+
 
 
     public function update(UpdateDescuentoRequest $request, string $id)
@@ -114,25 +122,35 @@ class DescuentoController extends Controller
 
     public function destroy(string $id)
     {
-        DB::transaction(function () use ($id) { //Para que la eliminacion y actualizacion del prodcuto a descuento->null sea simultanea
-            $descuento = Descuento::find($id); //busco el elemento
+        try {
+            DB::transaction(function () use ($id) {
+                $descuento = Descuento::find($id);
 
-            if (!$descuento) { //si no encuentro el descuento
-                return response()->json([
-                    'error' => 'Descuento no encontrado'
-                ], 404);
-            }
+                if (!$descuento) {
+                    return response()->json([
+                        'error' => 'Descuento no encontrado'
+                    ], 404);
+                }
 
-            DB::table('producto')  //Si el descuento existe, busca el prodcuto al que pertenece y el prodcuto_descuento setea a null
-                ->where('id_descuento', $id)
-                ->update(['id_descuento' => null]);
+                // Eliminamos todas las relaciones producto_descuento asociadas a este descuento
+                DB::table('producto_descuento')
+                    ->where('id_descuento', $id)
+                    ->delete();
 
-            $descuento->delete(); //se elimina el descuento
+                // Finalmente eliminamos el descuento
+                $descuento->delete();
+            });
 
-        });
-
-        return response()->json(['message' => 'Descuento eliminado'], 200);
+            return response()->json(['message' => 'Descuento eliminado'], 200);
+        } catch (\Exception $e) {
+            return response()->json([
+                'error' => 'Error al eliminar descuento.',
+                'detalle' => $e->getMessage()
+            ], 400);
+        }
     }
+
+
 
     public function filtro(Request $request)
     {
@@ -150,9 +168,10 @@ class DescuentoController extends Controller
                 $idSucursal = $request->id_sucursal;
             }
 
-            // Construir consulta base
-            $where = Descuento::join('producto', 'descuento.id_descuento', '=', 'producto.id_descuento')
-                ->where('descuento.id_sucursal', $idSucursal)
+            // Nueva consulta con tabla intermedia
+            $query = Descuento::join('producto_descuento', 'descuento.id_descuento', '=', 'producto_descuento.id_descuento')
+                ->join('producto', 'producto_descuento.id_producto', '=', 'producto.id_producto')
+                ->where('producto_descuento.id_sucursal', $idSucursal)
                 ->select(
                     'descuento.id_descuento',
                     'producto.producto',
@@ -161,12 +180,12 @@ class DescuentoController extends Controller
                     'descuento.duracion'
                 );
 
-            // ✅ Aplica filtro solo si hay texto en "busqueda"
+            // Filtro por texto
             if ($request->filled('busqueda')) {
-                $where->whereRaw('LOWER(producto.producto) LIKE ?', ['%' . strtolower($request->busqueda) . '%']);
+                $query->whereRaw('LOWER(producto.producto) LIKE ?', ['%' . strtolower($request->busqueda) . '%']);
             }
 
-            return $where->get();
+            return $query->get();
         } catch (\Exception $e) {
             return response()->json([
                 'error' => 'Error al filtrar descuentos.',

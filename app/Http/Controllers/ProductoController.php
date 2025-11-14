@@ -59,58 +59,66 @@ class ProductoController extends Controller
 
 
 
+public function show($id)
+{
+   /* SI HAGO LA RELACIONES DE MODELOS LA CONSULTA QUEDARIA MUCHO MAS SENCILLA:*/
+    // Carga categoría y marca como antes,
+    // pero AHORA carga la relación de descuentos SIN filtrar por sucursal
+    $producto = Producto::with(['categoria', 'marca', 'descuentos'])//tablas categoria y marca y descuntos
+        ->withSum('stock as stock', 'cantidad')//se trata de sumar los valores de cantidad de la tabla stock
+        ->findOrFail($id);// Encuentra el producto o lanza un error si no existe
 
-  public function show($id)
-  {
+    $producto->stock = $producto->stock ?? 0;//si no hay registros con ese id_prdcuto se retorna 0
 
-    /* SI HAGO LA RELACIONES DE MODELOS LA CONSULTA QUEDARIA MUCHO MAS SENCILLA:*/
-
-
-    $producto = Producto::with(['categoria', 'marca', 'descuento']) //tablas categoria y marca
-      ->withSum('stock as stock', 'cantidad') //se trata de sumar los valores de cantidad de la tabla stock
-      ->findOrFail($id); // Encuentra el producto o lanza un error si no existe
-
-    $producto->stock = $producto->stock ?? 0; //si no hay registros con ese id_prdcuto se retorna 0
 
     return $producto;
-  }
+}
 
-  public function mostrar2($id, Request $request)
-  {
-
+    
+public function mostrar2($id, Request $request)
+{
     try {
-      //Autenticar usuario desde el token
-      $usuario = JWTAuth::parseToken()->authenticate();
+        $usuario = JWTAuth::parseToken()->authenticate();
 
-      // Si NO es superadmin (id_rol <> 5), usa la sucursal del token
-      // Si es superadmin, valida que haya una sucursal recibida en el request
-      if ($usuario->id_rol != 5) {
-        $idSucursal = $usuario->id_sucursal;
-      } else {
-        $request->validate([
-          'id_sucursal' => 'required|exists:sucursal,id_sucursal'
-        ]);
-        $idSucursal = $request->id_sucursal;
-      }
+        if ($usuario->id_rol != 5) {
+            $idSucursal = $usuario->id_sucursal;
+        } else {
+            $request->validate([
+                'id_sucursal' => 'required|exists:sucursal,id_sucursal'
+            ]);
+            $idSucursal = $request->id_sucursal;
+        }
 
-      $producto = Producto::with(['categoria', 'marca', 'descuento'])
+        $producto = Producto::with([
+            'categoria',
+            'marca',
+            'descuentos' => function ($q) use ($idSucursal) {
+                $q->wherePivot('id_sucursal', $idSucursal);
+            }
+        ])
         ->withSum(['stock as stock' => function ($query) use ($idSucursal) {
-          $query->where('id_sucursal', $idSucursal);
+            $query->where('id_sucursal', $idSucursal);
         }], 'cantidad')
         ->findOrFail($id);
 
-      $producto->stock = $producto->stock ?? 0; //si no hay registros con ese id_prdcuto se retorna 0
+        $producto->stock = $producto->stock ?? 0; //si no hay registros de stock, retorna 0
 
-      return $producto;
+        // Convertimos "descuentos" en "descuento"
+        $producto->descuento = $producto->descuentos->first() ?? null;
+
+        unset($producto->descuentos);
+
+        return $producto;
+
     } catch (\Exception $e) {
-      return response()->json([
-        'error' => 'Error al filtrar productos.',
-        'detalle' => $e->getMessage()
-      ], 500);
+        return response()->json([
+            'error' => 'Error al filtrar productos.',
+            'detalle' => $e->getMessage()
+        ], 500);
     }
-  }
+}
 
-
+  
 
 
 
@@ -146,59 +154,74 @@ class ProductoController extends Controller
   }
 
   public function filtro(Request $request)
-  {
+{
     try {
-      //Autenticar usuario desde el token
-      $usuario = JWTAuth::parseToken()->authenticate();
+        //Autenticar usuario desde el token
+        $usuario = JWTAuth::parseToken()->authenticate();
 
-      // Si NO es superadmin (id_rol <> 5), usa la sucursal del token
-      // Si es superadmin, valida que haya una sucursal recibida en el request
-      if ($usuario->id_rol != 5) {
-        $idSucursal = $usuario->id_sucursal;
-      } else {
-        $request->validate([
-          'id_sucursal' => 'required|exists:sucursal,id_sucursal'
-        ]);
-        $idSucursal = $request->id_sucursal;
-      }
+        // Si NO es superadmin (id_rol <> 5), usa la sucursal del token
+        // Si es superadmin, valida que haya una sucursal recibida en el request
+        if ($usuario->id_rol != 5) {
+            $idSucursal = $usuario->id_sucursal;
+        } else {
+            $request->validate([
+                'id_sucursal' => 'required|exists:sucursal,id_sucursal'
+            ]);
+            $idSucursal = $request->id_sucursal;
+        }
 
-      // Construir la consulta base
-      $query = Producto::with('descuento')
+        // Construir la consulta base
+        // NOTE: cargamos la relación 'descuentos' filtrada por la sucursal (debería traer 0 o 1)
+        $query = Producto::with(['descuentos' => function ($q) use ($idSucursal) {
+            $q->wherePivot('id_sucursal', $idSucursal);
+        }])
         ->withSum(['stock' => function ($subQuery) use ($idSucursal) {
-          // Filtra stock solo por la sucursal correspondiente
-          $subQuery->where('id_sucursal', $idSucursal);
+            // Filtra stock solo por la sucursal correspondiente
+            $subQuery->where('id_sucursal', $idSucursal);
         }], 'cantidad');
 
-      //  Aplicar filtros opcionales
-      if ($request->id_marca != null)
-        $query->where('id_marca', $request->id_marca);
+        //  Aplicar filtros opcionales
+        if ($request->id_marca != null)
+            $query->where('id_marca', $request->id_marca);
 
-      if ($request->id_categoria != null)
-        $query->where('id_categoria', $request->id_categoria);
+        if ($request->id_categoria != null)
+            $query->where('id_categoria', $request->id_categoria);
 
-      if ($request->busqueda && $request->tipo === "Nombre")
-        $query->whereRaw('LOWER(producto) LIKE ?', ['%' . strtolower($request->busqueda) . '%']);
+        if ($request->busqueda && $request->tipo === "Nombre")
+            $query->whereRaw('LOWER(producto) LIKE ?', ['%' . strtolower($request->busqueda) . '%']);
 
-      if ($request->busqueda && $request->tipo === "Codigo")
-        $query->whereRaw('LOWER(codigo) LIKE ?', ['%' . strtolower($request->busqueda) . '%']);
+        if ($request->busqueda && $request->tipo === "Codigo")
+            $query->whereRaw('LOWER(codigo) LIKE ?', ['%' . strtolower($request->busqueda) . '%']);
 
-      // Obtener resultados
-      $productos = $query->get();
+        // Obtener resultados
+        $productos = $query->get();
 
-      // Normalizar el campo de stock (por compatibilidad frontend)
-      $productos->each(function ($producto) {
-        $producto->stock = $producto->stock_sum_cantidad ?? 0;
-        unset($producto->stock_sum_cantidad); // para no duplicar campos
-      });
+        // Normalizar/transformar los productos para frontend:
+        // - stock (compatibilidad)
+        // - descuento (traemos el primer descuento para la sucursal, o null)
+        $productos = $productos->map(function ($producto) {
+            // Stock: compatibilidad con frontend (lo mismo que hacías)
+            $producto->stock = $producto->stock_sum_cantidad ?? 0;
+            unset($producto->stock_sum_cantidad);
 
-      return response()->json($productos);
+            // Descuento: si la relación 'descuentos' trae algo (debería ser 0 o 1), lo asignamos a 'descuento'
+            $producto->descuento = $producto->descuentos->first() ?? null;
+
+            // Eliminamos la colección 'descuentos' para no duplicar datos
+            unset($producto->descuentos);
+
+            return $producto;
+        });
+
+        // Garantizamos devolver un array (collection->values()->all() devuelve array-indexed)
+        return response()->json($productos->values()->all());
     } catch (\Exception $e) {
-      return response()->json([
-        'error' => 'Error al filtrar productos.',
-        'detalle' => $e->getMessage()
-      ], 500);
+        return response()->json([
+            'error' => 'Error al filtrar productos.',
+            'detalle' => $e->getMessage()
+        ], 500);
     }
-  }
+}
 
   public function buscar(Request $request)
   {

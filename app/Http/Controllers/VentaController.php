@@ -179,12 +179,22 @@ class VentaController extends Controller
                             ->sum('cantidad');
 
                         if ($item['Cantidad'] <= $stock) {
+
+                            $descuento = DB::table('producto_descuento as pd')
+                                ->join('descuento as d', 'pd.id_descuento', '=', 'd.id_descuento')
+                                ->where('pd.id_producto', $item['id_producto'])
+                                ->where('pd.id_sucursal', $idSucursal)
+                                ->value('d.porcentaje');
+
+
                             DB::table('venta_producto')->insert([
                                 'id_venta' => $venta->id_venta,
                                 'id_producto' => $item['id_producto'],
                                 'cantidad' => $item['Cantidad'],
-                                'iva' => $item['IVA']
+                                'iva' => $item['IVA'],
+                                'descuento' => $descuento ?? 0
                             ]);
+
 
                             DB::table('stock')->insert([
                                 'cantidad' => -$item['Cantidad'],
@@ -263,11 +273,10 @@ class VentaController extends Controller
                                     'cantidad', vp.cantidad,
                                     'iva', vp.iva,
                                     'costo', TO_CHAR(p.costo, 'FM999999999.00'),
-                                    'descuento_porcentaje', d.porcentaje
+                                    'descuento_porcentaje', vp.descuento
                                 ))::jsonb
                                 FROM venta_producto vp
                                 LEFT JOIN producto p ON vp.id_producto = p.id_producto
-                                LEFT JOIN descuento d ON p.id_descuento = d.id_descuento
                                 WHERE vp.id_venta = venta.id_venta
                             ),
                             '[]'::jsonb
@@ -421,7 +430,7 @@ class VentaController extends Controller
                 'metodo_pago' => 'nullable|string',
             ]);
 
-            
+
 
 
             //  Filtrar por sucursal según rol

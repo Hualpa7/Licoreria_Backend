@@ -17,8 +17,7 @@ class Producto extends Model
         'alerta_minima',
         'costo',
         'id_categoria',
-        'id_marca',
-        'id_descuento'
+        'id_marca'
     ];
 
     protected function producto(): Attribute
@@ -56,11 +55,6 @@ class Producto extends Model
         return $this->belongsTo(Categoria::class, 'id_categoria');
     }
 
-    public function descuento()
-    {
-        return $this->belongsTo(Descuento::class, 'id_descuento');
-    }
-
     // Relación con la marca
     public function marca()
     {
@@ -72,4 +66,13 @@ class Producto extends Model
     {
         return $this->hasMany(Stock::class, 'id_producto');
     }
+
+    //LUEGO DE LA IMPLEMTENACION DE PRODCUTOS-DESCUENTOS MUCHOS A MUCHOS
+    public function descuentos()
+    {
+        return $this->belongsToMany(Descuento::class, 'producto_descuento', 'id_producto', 'id_descuento')
+            ->withPivot('id_sucursal');
+    }
+
+    
 }

@@ -26,5 +26,11 @@ class Descuento extends Model
         );
     }
 
-    
+    //LUEGO DE LA IMPLEMTENACION DE PRODCUTOS-DESCUENTOS MUCHOS A MUCHOS
+    public function productos()
+{
+    return $this->belongsToMany(Producto::class, 'producto_descuento', 'id_descuento', 'id_producto')
+        ->withPivot('id_sucursal');
+}
+
 }
