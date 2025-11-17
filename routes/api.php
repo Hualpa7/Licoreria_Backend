@@ -18,11 +18,7 @@ use App\Http\Middleware\JwtMiddleware;
 use App\Models\Descuento;
 use Illuminate\Support\Facades\Route;
 use App\Models\Producto;
-
-
-
-
-
+use Illuminate\Support\Facades\Mail;
 
 //Route::get('/combo/mostrarDesactivados', [ComboController::class,'mostrarDesactivados']);
 //Route::resource('/categoria',CategoriaController::class);
@@ -95,6 +91,9 @@ Route::middleware('checkPermiso:crear sucursal')->put('/sucursal/{id}', [Sucursa
 //RUTAS PROTEGIDAS DE USUARIO
 Route::resource('/usuario',UsuarioController::class) ->except(['store', 'update']);
 Route::post('/usuario/iniciarSesion', [UsuarioController::class,'login']);
+//RUTAS RESETEO CONTRASENIA
+Route::post('/usuario/forgot', [UsuarioController::class, 'forgotPassword']);
+Route::post('/usuario/reset', [UsuarioController::class, 'resetPassword']);
 //Route::post('/usuario/registrar', [UsuarioController::class,'register']);
 //rutas de Usuario con middleware de permiso
 Route::middleware('checkPermiso:crear usuario')->post('/usuario/registrar', [UsuarioController::class, 'register']);
@@ -151,7 +150,6 @@ Route::middleware('checkPermiso:agregar permisos')->post('/permiso/vincularPermi
 
 //RUTAS PROTEGIDAS DE STOCK
 Route::resource('/stock',StockController::class);;
-
 
 
 

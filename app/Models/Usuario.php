@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Auth\Passwords\CanResetPassword;
 
 
 class Usuario extends Authenticatable implements JWTSubject
@@ -16,7 +17,7 @@ class Usuario extends Authenticatable implements JWTSubject
     protected $primaryKey  = 'id_usuario';
     public $timestamps = false;
 
-    use HasFactory, Notifiable;
+    use HasFactory, Notifiable,CanResetPassword;
 
     protected $fillable = [
         'nombre',
@@ -27,6 +28,17 @@ class Usuario extends Authenticatable implements JWTSubject
         'id_sucursal',
         'correo'
     ];
+
+     //TUVE QUE AGREGAR ESTAS 2 FUNCIONES PORQUE LARAVEL ESTABA COMANDO POR DEFECTO EMAIL Y PASSWORD
+    public function getEmailForPasswordReset()
+    {
+        return $this->correo;
+    }
+
+    public function getAuthPassword()
+    {
+        return $this->contraseña;
+    }
 
     public function getJWTIdentifier()
     {
