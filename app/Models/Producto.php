@@ -17,7 +17,8 @@ class Producto extends Model
         'alerta_minima',
         'costo',
         'id_categoria',
-        'id_marca'
+        'id_marca',
+        'foto'
     ];
 
     protected function producto(): Attribute

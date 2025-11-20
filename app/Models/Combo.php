@@ -16,7 +16,8 @@ class Combo extends Model
         'nombre',
         'costo',
         'duracion',
-        'id_sucursal'
+        'id_sucursal',
+        'foto'
     ];
 
     protected function nombre(): Attribute{
@@ -48,7 +49,7 @@ class Combo extends Model
     {
         return Attribute::make(
             get: fn($value) => date('d/m/Y', strtotime($value)), // Convertir a dd/mm/aaaa al obtenerlo
-            set: fn($value) => date('Y-m-d H:i:s', strtotime($value)) // Guardar en Y-m-d H:i:s al almacenarlo
+            set: fn($value) => date('Y-m-d', strtotime($value)) // Guardar en Y-m-d H:i:s al almacenarlo
         );
     }
 }

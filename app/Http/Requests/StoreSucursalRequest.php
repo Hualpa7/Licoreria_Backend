@@ -25,8 +25,8 @@ class StoreSucursalRequest extends FormRequest
             'nombre' => 'required|string|max:100|unique:sucursal,nombre',
             'direccion' => 'required|unique:sucursal,direccion|string|max:200',
             'ciudad' => 'required',
-            'provincia' => 'required', 
-            'foto' => 'nullable'
+            'provincia' => 'required',
+            'foto' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:5120',
         ];
     }
 

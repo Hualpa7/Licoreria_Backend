@@ -28,9 +28,14 @@ class Descuento extends Model
 
     //LUEGO DE LA IMPLEMTENACION DE PRODCUTOS-DESCUENTOS MUCHOS A MUCHOS
     public function productos()
-{
-    return $this->belongsToMany(Producto::class, 'producto_descuento', 'id_descuento', 'id_producto')
-        ->withPivot('id_sucursal');
-}
+    {
+        return $this->belongsToMany(Producto::class, 'producto_descuento', 'id_descuento', 'id_producto')
+            ->withPivot('id_sucursal');
+    }
 
+    //ESTO PARA OOBTNEER EL NOMBRE DE LA SUCRUSAL
+    public function sucursal()
+    {
+        return $this->belongsTo(Sucursal::class, 'id_sucursal');
+    }
 }

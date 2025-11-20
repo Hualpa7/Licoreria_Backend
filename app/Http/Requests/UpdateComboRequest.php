@@ -26,8 +26,9 @@ class UpdateComboRequest extends FormRequest
             'nombre' => 'required',
             'costo' => 'required|regex:/^\d+(\,\d{1,2})?$/',
             'duracion' => 'required|date|after:today',
+            'foto' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:5120',
             'id_sucursal' => 'required|integer|exists:sucursal,id_sucursal',
-            'productos' => 'required|array',
+            'productos' => 'required',
             'productos.*.id_producto' => 'required|integer|exists:producto,id_producto',
             'productos.*.cantidad' => 'required|integer|min:1'
         ];
