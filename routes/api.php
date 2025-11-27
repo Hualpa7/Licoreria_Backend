@@ -5,6 +5,7 @@ use App\Http\Controllers\ComboController;
 use App\Http\Controllers\CompraController;
 use App\Http\Controllers\DescuentoController;
 use App\Http\Controllers\MarcaController;
+use App\Http\Controllers\PagoController;
 use App\Http\Controllers\PermisoController;
 use App\Http\Controllers\ProductoController;
 use App\Http\Controllers\ProveedorController;
@@ -156,7 +157,14 @@ Route::middleware('checkPermiso:agregar permisos')->post('/permiso/vincularPermi
 //RUTAS PROTEGIDAS DE STOCK
 Route::resource('/stock',StockController::class);;
 
+//RUTAS DE PPAGO
+// Rutas para pagos
+Route::post('/pagos/crear-preferencia', [PagoController::class, 'crearPreferenciaPago']);
+Route::post('/pagos/webhook', [PagoController::class, 'webhookMercadoPago']);
+Route::get('/pagos/success', [PagoController::class, 'pagoExitoso']);
+Route::get('/pagos/failure', [PagoController::class, 'pagoFallido']);
+Route::get('/pagos/pending', [PagoController::class, 'pagoPendiente']);
 
-
-
+//para validar que haya stoc antes de hacer el pago con mercadopago
+Route::middleware('checkPermiso:vender')->post('/venta/validar-stock', [VentaController::class, 'validarStock']);
 

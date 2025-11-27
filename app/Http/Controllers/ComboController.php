@@ -322,27 +322,80 @@ class ComboController extends Controller
     }
 
     public function activar($id, Request $request)
-    {
-        // Convertir fecha al formato correcto
-        /*  if ($request->has('nuevo_vencimiento')) {
-        try {
-            $fecha = Carbon::createFromFormat('d/m/Y', $request->nuevo_vencimiento);
-            $request->merge(['nuevo_vencimiento' => $fecha->format('Y-m-d')]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'errors' => ['nuevo_vencimiento' => ['El formato de la fecha no es válido (use dd/mm/yyyy).']]
-            ], 422);
-        }
-    }
-*/
-        $request->validate([
-            'nuevo_vencimiento' => 'required|date|after:today',
-        ], [
-            'nuevo_vencimiento.required' => 'Ingrese una fecha',
-            'nuevo_vencimiento.after' => 'La fecha de duración debe ser posterior al día actual.',
-        ]);
+{
+    $request->validate([
+        'nuevo_vencimiento' => 'required|date|after:today',
+    ], [
+        'nuevo_vencimiento.required' => 'Ingrese una fecha',
+        'nuevo_vencimiento.after' => 'La fecha de duración debe ser posterior al día actual.',
+    ]);
 
+    try {
+        // Autenticar usuario desde el token
+        $usuario = JWTAuth::parseToken()->authenticate();
+        $idUsuario = $usuario->id_usuario;
+
+        // Determinar sucursal según el rol
+        if ($usuario->id_rol != 5) {
+            // Es vendedor: toma la sucursal del token
+            $idSucursal = $usuario->id_sucursal;
+        } else {
+            // Es superAdmin: requiere que se envíe la sucursal
+            $request->validate([
+                'id_sucursal' => 'required|exists:sucursal,id_sucursal'
+            ]);
+            $idSucursal = $request->id_sucursal;
+        }
+
+        // Buscar el combo
         $combo = Combo::findOrFail($id);
+
+        // Obtener los productos que conforman el combo
+        $productosCombo = DB::table('combo_producto')
+            ->where('combo_producto.id_combo', $combo->id_combo)
+            ->select(
+                'combo_producto.id_producto',
+                'combo_producto.cantidad',
+                'producto.producto'
+            )
+            ->join('producto', 'combo_producto.id_producto', '=', 'producto.id_producto')
+            ->get();
+
+        // Validar que el combo tenga productos
+        if ($productosCombo->isEmpty()) {
+            return response()->json([
+                'error' => 'El combo no tiene productos asociados',
+            ], 400);
+        }
+
+        // Revisar el stock de cada producto en la sucursal
+        $productosSinStock = [];
+
+        foreach ($productosCombo as $producto) {
+            $stockDisponible = DB::table('stock')
+                ->where('id_producto', $producto->id_producto)
+                ->where('id_sucursal', $idSucursal)
+                ->sum('cantidad');
+
+            // Verificar si hay stock suficiente (cantidad requerida en el combo)
+            if ($producto->cantidad > $stockDisponible) {
+                $productosSinStock[] = [
+                    'producto' => $producto->producto,
+                    'requerido' => $producto->cantidad,
+                    'disponible' => $stockDisponible
+                ];
+            }
+        }
+
+        // Si hay productos sin stock suficiente, retornar error
+        if (!empty($productosSinStock)) {
+            return response()->json([
+                'error' => 'No hay stock suficiente para activar este combo',
+                'detalles' => $productosSinStock,
+            ], 400);
+        }
+
+        // Si todo es válido, activar el combo
         $combo->duracion = $request->nuevo_vencimiento;
         $combo->activo = true;
         $combo->save();
@@ -350,8 +403,15 @@ class ComboController extends Controller
         return response()->json([
             'message' => 'Combo activado correctamente',
             'combo' => $combo
-        ]);
+        ], 200);
+
+    } catch (\Exception $e) {
+        return response()->json([
+            'error' => 'Error al activar el combo',
+            'detalle' => $e->getMessage(),
+        ], 400);
     }
+}
 
 
     //COMBOSQUE SE MSTRARRAN EN INICIO

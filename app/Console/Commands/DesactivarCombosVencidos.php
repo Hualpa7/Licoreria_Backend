@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use Illuminate\Console\Command;
 use App\Models\Combo;
+use Carbon\Carbon;
 
 class DesactivarCombosVencidos extends Command
 {
@@ -26,23 +27,23 @@ class DesactivarCombosVencidos extends Command
      */
     public function handle()
     {
-        $hoy = now();
+        $hoy = Carbon::now()->format('Y-m-d H:i:s');
 
-        // Buscar combos vencidos (fecha pasada y aún activos)
-        $combosVencidos = Combo::where('duracion', '<', $hoy)
+        // busca combos vencidos sin depender del accessor
+        $combosVencidos = Combo::whereRaw('duracion < ?', [$hoy])
             ->where('activo', true)
             ->get();
 
         if ($combosVencidos->isEmpty()) {
-            $this->info('No hay combos vencidos para desactivar.');
+            $this->info(' No hay combos vencidos para desactivar.');
             return;
         }
 
-        // Desactivar combos vencidos
-        Combo::where('duracion', '<', $hoy)
+        // desactivar combos vencidos
+        Combo::whereRaw('duracion < ?', [$hoy])
             ->where('activo', true)
             ->update(['activo' => false]);
 
-        $this->info(count($combosVencidos) . ' combos vencidos fueron desactivados correctamente.');
+        $this->info('' . count($combosVencidos) . ' combos vencidos fueron desactivados correctamente.');
     }
 }

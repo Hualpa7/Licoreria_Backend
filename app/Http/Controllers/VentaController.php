@@ -587,4 +587,114 @@ class VentaController extends Controller
             ], 500);
         }
     }
+
+    // mETODO PARA VALIDAR QUE HAYA STOCK SUFICIENTE ANTES DE HACER LA VENTA POR MP
+
+    public function validarStock(Request $request)
+    {
+        try {
+            // Autenticar usuario desde el token
+            $usuario = JWTAuth::parseToken()->authenticate();
+            $idUsuario = $usuario->id_usuario;
+
+            // Determinar sucursal según el rol
+            if ($usuario->id_rol != 5) {
+                $idSucursal = $usuario->id_sucursal;
+            } else {
+                $request->validate([
+                    'id_sucursal' => 'required|exists:sucursal,id_sucursal'
+                ]);
+                $idSucursal = $request->id_sucursal;
+            }
+
+            // Validar que existan productos
+            $productos = $request->input('productos');
+            if (empty($productos)) {
+                return response()->json([
+                    'error' => 'No hay productos para validar'
+                ], 400);
+            }
+
+            // --------------------------------------------------------
+            // acumulamos cantidades por ID de producto
+            // --------------------------------------------------------
+            $acumulado = []; // id_producto => cantidad total solicitada
+
+            foreach ($productos as $item) {
+                if ($item['esCombo']) {
+                    // Obtener los productos del combo
+                    $combo = DB::table('combo')
+                        ->where('combo.id_combo', $item['id_combo'])
+                        ->leftJoin('combo_producto', 'combo.id_combo', '=', 'combo_producto.id_combo')
+                        ->leftJoin('producto', 'combo_producto.id_producto', '=', 'producto.id_producto')
+                        ->select(DB::raw('json_agg(json_build_object(
+                        \'id_producto\', producto.id_producto,
+                        \'nombre\', producto.producto,
+                        \'cantidad\', combo_producto.cantidad
+                    )) as productos'))
+                        ->groupBy('combo.id_combo')
+                        ->first();
+
+                    if (!$combo) {
+                        return response()->json([
+                            'error' => 'Combo no encontrado',
+                            'id_combo' => $item['id_combo']
+                        ], 404);
+                    }
+
+                    $productosCombo = json_decode($combo->productos);
+
+                    foreach ($productosCombo as $prodC) {
+                        // Cantidad total de este producto dentro del combo x cantidad pedida
+                        $cantidadTotal = $prodC->cantidad * $item['Cantidad'];
+
+                        if (!isset($acumulado[$prodC->id_producto])) {
+                            $acumulado[$prodC->id_producto] = 0;
+                        }
+
+                        $acumulado[$prodC->id_producto] += $cantidadTotal;
+                    }
+                } else {
+                    // Producto individual
+                    if (!isset($acumulado[$item['id_producto']])) {
+                        $acumulado[$item['id_producto']] = 0;
+                    }
+
+                    $acumulado[$item['id_producto']] += $item['Cantidad'];
+                }
+            }
+
+            // --------------------------------------------------------
+            // VALIDACIÓN FINAL: verificar stock de cada producto sumado
+            // --------------------------------------------------------
+            foreach ($acumulado as $idProd => $cantidadTotal) {
+                $stock = DB::table('stock')
+                    ->where('id_producto', $idProd)
+                    ->where('id_sucursal', $idSucursal)
+                    ->sum('cantidad');
+
+                if ($cantidadTotal > $stock) {
+                    $nombreProd = DB::table('producto')
+                        ->where('id_producto', $idProd)
+                        ->value('producto');
+
+                    return response()->json([
+                        'error' => 'Stock insuficiente',
+                        'detalle' => "No hay stock suficiente del producto '{$nombreProd}'. Se necesitan {$cantidadTotal}, pero solo hay {$stock}."
+                    ], 400);
+                }
+            }
+
+            // Si todo está OK
+            return response()->json([
+                'success' => true,
+                'mensaje' => 'Stock disponible'
+            ], 200);
+        } catch (\Exception $e) {
+            return response()->json([
+                'error' => 'Error al validar stock',
+                'detalle' => $e->getMessage()
+            ], 400);
+        }
+    }
 }

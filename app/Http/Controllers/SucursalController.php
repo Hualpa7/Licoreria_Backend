@@ -16,14 +16,11 @@ class SucursalController extends Controller
     {
         return Sucursal::all()->map(function ($suc) {
             // Construir dirección completa: direccion, ciudad
-            $suc->direccion = $suc->direccion . ', ' . $suc->ciudad . ','.$suc->provincia;
+
             if ($suc->foto) {
                 $suc->imagen = Storage::url($suc->foto);
                 unset($suc->foto); // Eliminamos la ruta guardada, dejamos solo imagen
             }
-
-            // Eliminamos campos innecesarios para el frontend
-            unset($suc->provincia);
             return $suc;
         });
     }
