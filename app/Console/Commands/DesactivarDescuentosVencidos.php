@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use Illuminate\Console\Command;
 use App\Models\Descuento;
 use App\Models\Producto;
+use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 
 class DesactivarDescuentosVencidos extends Command
@@ -28,24 +29,31 @@ class DesactivarDescuentosVencidos extends Command
      */
     public function handle()
     {
-        $hoy = now();
+        // Uso carbon para poder comprar correctamente las fechas ya que si no usaria el accesor configurdo en el modelo  
+        //el ucal no coincide en formato
+        $hoy = Carbon::now()->format('Y-m-d H:i:s');
 
         DB::transaction(function () use ($hoy) {
-            // Buscar los IDs de los descuentos vencidos
-            $ids = Descuento::where('duracion', '<', $hoy)->pluck('id_descuento');
+            // Buscar descuentos vencidos usando comparación directa sin accessor
+            $descuentosVencidos = Descuento::whereRaw('duracion < ?', [$hoy])->get();
 
-            if ($ids->isEmpty()) {
-                $this->info('No hay descuentos vencidos.');
+            if ($descuentosVencidos->isEmpty()) {
+                $this->info(' No hay descuentos vencidos.');
                 return;
             }
 
-            // Desvincular productos
-            Producto::whereIn('id_descuento', $ids)->update(['id_descuento' => null]);
+            $ids = $descuentosVencidos->pluck('id_descuento');
+            $cantidad = $ids->count();
 
-            // Eliminar descuentos
+            // desvinculo productos desde la tabla intermedia producto_descuento
+            DB::table('producto_descuento')
+                ->whereIn('id_descuento', $ids)
+                ->delete();
+
+            // eliminar descuentoo de su tambla
             Descuento::whereIn('id_descuento', $ids)->delete();
 
-            $this->info('Descuentos vencidos desactivados y desvinculados correctamente.');
+            $this->info(" {$cantidad} descuentos vencidos desactivados y desvinculados correctamente.");
         });
     }
 }

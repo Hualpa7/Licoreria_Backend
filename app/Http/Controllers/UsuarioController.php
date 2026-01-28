@@ -290,98 +290,123 @@ class UsuarioController extends Controller
     //FUNCIONES RESETEO CONTRASEÑA
 
     public function forgotPassword(Request $request)
-{
-    $request->validate([
-        'correo' => 'required|email'
-    ]);
+    {
+        $request->validate([
+            'correo' => 'required|email'
+        ]);
 
-    $usuario = Usuario::where('correo', $request->correo)->first();
+        $usuario = Usuario::where('correo', $request->correo)->first();
 
-    if (!$usuario) {
-        return response()->json(['message' => 'Correo no encontrado'], 404);
+        if (!$usuario) {
+            return response()->json(['message' => 'Correo no encontrado'], 404);
+        }
+
+        // Crear el token manualmente
+        $token = \Illuminate\Support\Str::random(64);
+
+        // Guardar en la base de datos con el campo 'email' (no 'correo')
+        // porque la tabla password_reset_tokens usa 'email'
+        DB::table('password_reset_tokens')->updateOrInsert(
+            ['email' => $usuario->correo],
+            [
+                'email' => $usuario->correo,
+                'token' => Hash::make($token), // Guardamos el hash del token
+                'created_at' => now()
+            ]
+        );
+
+        // Enviar correo
+        try {
+            Mail::send('emails.reset_password', [
+                'token' => $token,  // Enviamos el token SIN hashear
+                'correo' => $usuario->correo
+            ], function ($message) use ($usuario) {
+                $message->to($usuario->correo);
+                $message->subject('Recuperar contraseña - LEYSECA');
+            });
+
+            Log::info('Correo de reseteo enviado a: ' . $usuario->correo);
+
+            return response()->json(['message' => 'Correo enviado exitosamente']);
+        } catch (\Exception $e) {
+            Log::error('Error al enviar correo: ' . $e->getMessage());
+            return response()->json([
+                'message' => 'Error al enviar el correo',
+                'error' => $e->getMessage()
+            ], 500);
+        }
     }
-
-    // Crear el token manualmente
-    $token = \Illuminate\Support\Str::random(64);
-    
-    // Guardar en la base de datos con el campo 'email' (no 'correo')
-    // porque la tabla password_reset_tokens usa 'email'
-    DB::table('password_reset_tokens')->updateOrInsert(
-        ['email' => $usuario->correo],
-        [
-            'email' => $usuario->correo,
-            'token' => Hash::make($token), // Guardamos el hash del token
-            'created_at' => now()
-        ]
-    );
-
-    // Enviar correo
-    try {
-        Mail::send('emails.reset_password', [
-            'token' => $token,  // Enviamos el token SIN hashear
-            'correo' => $usuario->correo
-        ], function ($message) use ($usuario) {
-            $message->to($usuario->correo);
-            $message->subject('Recuperar contraseña - LEYSECA');
-        });
-
-        Log::info('Correo de reseteo enviado a: ' . $usuario->correo);
-
-        return response()->json(['message' => 'Correo enviado exitosamente']);
-    } catch (\Exception $e) {
-        Log::error('Error al enviar correo: ' . $e->getMessage());
-        return response()->json([
-            'message' => 'Error al enviar el correo',
-            'error' => $e->getMessage()
-        ], 500);
-    }
-}
 
 
 
 
     public function resetPassword(Request $request)
-{
-    $request->validate([
-        'correo' => 'required|email',
-        'token' => 'required|string',
-        'contraseña' => 'required|min:6'
-    ]);
+    {
+        $request->validate([
+            'correo' => 'required|email',
+            'token' => 'required|string',
+            'contraseña' => 'required|min:6'
+        ]);
 
-    $usuario = Usuario::where('correo', $request->correo)->first();
+        $usuario = Usuario::where('correo', $request->correo)->first();
 
-    if (!$usuario) {
-        return response()->json(['message' => 'Correo no encontrado'], 404);
-    }
+        if (!$usuario) {
+            return response()->json(['message' => 'Correo no encontrado'], 404);
+        }
 
-    // Buscar el token en la base de datos
-    $resetRecord = DB::table('password_reset_tokens')
-        ->where('email', $request->correo)
-        ->first();
+        // Buscar el token en la base de datos
+        $resetRecord = DB::table('password_reset_tokens')
+            ->where('email', $request->correo)
+            ->first();
 
-    if (!$resetRecord) {
-        return response()->json(['message' => 'No se encontró solicitud de reseteo'], 400);
-    }
+        if (!$resetRecord) {
+            return response()->json(['message' => 'No se encontró solicitud de reseteo'], 400);
+        }
 
-    // Verificar que el token coincida (comparamos el token recibido con el hash guardado)
-    if (!Hash::check($request->token, $resetRecord->token)) {
-        return response()->json(['message' => 'Token inválido'], 400);
-    }
+        // Verificar que el token coincida (comparamos el token recibido con el hash guardado)
+        if (!Hash::check($request->token, $resetRecord->token)) {
+            return response()->json(['message' => 'Token inválido'], 400);
+        }
 
-    // Verificar que no haya expirado (60 minutos por defecto)
-    $createdAt = \Carbon\Carbon::parse($resetRecord->created_at);
-    if ($createdAt->addMinutes(60)->isPast()) {
+        // Verificar que no haya expirado (60 minutos por defecto)
+        $createdAt = \Carbon\Carbon::parse($resetRecord->created_at);
+        if ($createdAt->addMinutes(60)->isPast()) {
+            DB::table('password_reset_tokens')->where('email', $request->correo)->delete();
+            return response()->json(['message' => 'Token expirado'], 400);
+        }
+
+        // Actualizar contraseña
+        $usuario->contraseña = Hash::make($request->contraseña);
+        $usuario->save();
+
+        // Eliminar el token usado
         DB::table('password_reset_tokens')->where('email', $request->correo)->delete();
-        return response()->json(['message' => 'Token expirado'], 400);
+
+        return response()->json(['message' => 'Contraseña actualizada correctamente']);
     }
 
-    // Actualizar contraseña
-    $usuario->contraseña = Hash::make($request->contraseña);
-    $usuario->save();
 
-    // Eliminar el token usado
-    DB::table('password_reset_tokens')->where('email', $request->correo)->delete();
+    public function cambiarContrasenia(Request $request)
+    {
+        $request->validate([
+            'correo' => 'required|email',
+            'contraseña_actual' => 'required',
+            'nueva_contraseña' => 'required|min:6',
+        ]);
 
-    return response()->json(['message' => 'Contraseña actualizada correctamente']);
-}
+        $usuario = Usuario::where('correo', $request->correo)->first();
+
+        if (!$usuario || !Hash::check($request->contraseña_actual, $usuario->contraseña)) {
+            return response()->json([
+                'message' => 'La contraseña actual es incorrecta.'
+            ], 422);
+        }
+
+        $usuario->contraseña = Hash::make($request->nueva_contraseña);
+        $usuario->save();
+
+        return response()->json([
+            'message' => 'Contraseña cambiada exitosamente.'
+        ], 200);
+    }
 }

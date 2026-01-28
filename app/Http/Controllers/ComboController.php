@@ -9,6 +9,8 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Storage;
+
 use Tymon\JWTAuth\Facades\JWTAuth;
 
 class ComboController extends Controller
@@ -119,11 +121,17 @@ class ComboController extends Controller
             DB::transaction(function () use ($datosValidos, $request, $idSucursal) { //envolvemos todo en una transaccion para que se haga tanto 
                 //la creacion del combo como el registro en la tabla combo_producto
 
+                // SI LLEGA FOTO, LA GUARDAMOS EN storage/app/public/productos
+                if ($request->hasFile('foto')) {
+                    $ruta = $request->file('foto')->store('combos', 'public');
+                    $datosValidos['foto'] = $ruta; // Guardar SOLO la ruta en BD
+                }
                 $combo = Combo::create(array_merge($datosValidos, [
                     'id_sucursal' => $idSucursal
                 ]));
 
-                $productos = $request->input('productos', []); //obtenemos el array productos del request
+                $productos = json_decode($request->productos, true) ?? [];
+
 
                 foreach ($productos as $producto) { //para cada uno de los productos del array, los vinculo con el id_combo creado
                     DB::table('combo_producto')->insert([
@@ -159,6 +167,7 @@ class ComboController extends Controller
                 'combo.nombre',
                 'combo.costo',
                 'combo.duracion',
+                'combo.foto',
                 DB::raw('json_agg(json_build_object(
                 \'producto\',producto.producto,
                 \'id_producto\',producto.id_producto,
@@ -168,10 +177,12 @@ class ComboController extends Controller
             ->groupBy('combo.id_combo')
             ->first();
 
-        // Decodificar la cadena JSON del array productos
-        if ($combo)
-            $combo->productos = json_decode($combo->productos);
-        else return response()->json(['error' => 'Combo no encontrado'], 404);
+        if (!$combo) return response()->json(['error' => 'Combo no encontrado'], 404);
+        //decodifciar en JSON
+        $combo->productos = json_decode($combo->productos);
+        if ($combo->foto) {
+            $combo->foto_url = Storage::url($combo->foto);
+        }
 
         return response()->json($combo);
     }
@@ -191,11 +202,26 @@ class ComboController extends Controller
             ], 422);
         }
         $datosValidos = $request->validated();
-
-
         $combo = Combo::findOrFail($id);
-        $combo->update($datosValidos);
 
+        // Manejo de eliminación de imagen
+        if ($request->has('eliminar_foto')) {
+            if ($combo->foto && Storage::disk('public')->exists($combo->foto)) {
+                Storage::disk('public')->delete($combo->foto);
+            }
+            $datosValidos['foto'] = null;
+        }
+        // Manejo de nueva imagen
+        else if ($request->hasFile('foto')) {
+            // Borrar foto anterior si existe
+            if ($combo->foto && Storage::disk('public')->exists($combo->foto)) {
+                Storage::disk('public')->delete($combo->foto);
+            }
+            $ruta = $request->file('foto')->store('combos', 'public');
+            $datosValidos['foto'] = $ruta;
+        }
+
+        $combo->update($datosValidos);
         return response()->json([
             'message' => 'Combo actualizado exitosamente',
             'producto' => $combo
@@ -296,27 +322,80 @@ class ComboController extends Controller
     }
 
     public function activar($id, Request $request)
-    {
-        // Convertir fecha al formato correcto
-        /*  if ($request->has('nuevo_vencimiento')) {
-        try {
-            $fecha = Carbon::createFromFormat('d/m/Y', $request->nuevo_vencimiento);
-            $request->merge(['nuevo_vencimiento' => $fecha->format('Y-m-d')]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'errors' => ['nuevo_vencimiento' => ['El formato de la fecha no es válido (use dd/mm/yyyy).']]
-            ], 422);
-        }
-    }
-*/
-        $request->validate([
-            'nuevo_vencimiento' => 'required|date|after:today',
-        ], [
-            'nuevo_vencimiento.required' => 'Ingrese una fecha',
-            'nuevo_vencimiento.after' => 'La fecha de duración debe ser posterior al día actual.',
-        ]);
+{
+    $request->validate([
+        'nuevo_vencimiento' => 'required|date|after:today',
+    ], [
+        'nuevo_vencimiento.required' => 'Ingrese una fecha',
+        'nuevo_vencimiento.after' => 'La fecha de duración debe ser posterior al día actual.',
+    ]);
 
+    try {
+        // Autenticar usuario desde el token
+        $usuario = JWTAuth::parseToken()->authenticate();
+        $idUsuario = $usuario->id_usuario;
+
+        // Determinar sucursal según el rol
+        if ($usuario->id_rol != 5) {
+            // Es vendedor: toma la sucursal del token
+            $idSucursal = $usuario->id_sucursal;
+        } else {
+            // Es superAdmin: requiere que se envíe la sucursal
+            $request->validate([
+                'id_sucursal' => 'required|exists:sucursal,id_sucursal'
+            ]);
+            $idSucursal = $request->id_sucursal;
+        }
+
+        // Buscar el combo
         $combo = Combo::findOrFail($id);
+
+        // Obtener los productos que conforman el combo
+        $productosCombo = DB::table('combo_producto')
+            ->where('combo_producto.id_combo', $combo->id_combo)
+            ->select(
+                'combo_producto.id_producto',
+                'combo_producto.cantidad',
+                'producto.producto'
+            )
+            ->join('producto', 'combo_producto.id_producto', '=', 'producto.id_producto')
+            ->get();
+
+        // Validar que el combo tenga productos
+        if ($productosCombo->isEmpty()) {
+            return response()->json([
+                'error' => 'El combo no tiene productos asociados',
+            ], 400);
+        }
+
+        // Revisar el stock de cada producto en la sucursal
+        $productosSinStock = [];
+
+        foreach ($productosCombo as $producto) {
+            $stockDisponible = DB::table('stock')
+                ->where('id_producto', $producto->id_producto)
+                ->where('id_sucursal', $idSucursal)
+                ->sum('cantidad');
+
+            // Verificar si hay stock suficiente (cantidad requerida en el combo)
+            if ($producto->cantidad > $stockDisponible) {
+                $productosSinStock[] = [
+                    'producto' => $producto->producto,
+                    'requerido' => $producto->cantidad,
+                    'disponible' => $stockDisponible
+                ];
+            }
+        }
+
+        // Si hay productos sin stock suficiente, retornar error
+        if (!empty($productosSinStock)) {
+            return response()->json([
+                'error' => 'No hay stock suficiente para activar este combo',
+                'detalles' => $productosSinStock,
+            ], 400);
+        }
+
+        // Si todo es válido, activar el combo
         $combo->duracion = $request->nuevo_vencimiento;
         $combo->activo = true;
         $combo->save();
@@ -324,6 +403,62 @@ class ComboController extends Controller
         return response()->json([
             'message' => 'Combo activado correctamente',
             'combo' => $combo
-        ]);
+        ], 200);
+
+    } catch (\Exception $e) {
+        return response()->json([
+            'error' => 'Error al activar el combo',
+            'detalle' => $e->getMessage(),
+        ], 400);
+    }
+}
+
+
+    //COMBOSQUE SE MSTRARRAN EN INICIO
+    public function mostrarActivados()
+    {
+        try {
+            // Obtener todos los combos activos de TODAS las sucursales
+            $combos = DB::table('combo')
+                ->where('combo.activo', true)
+                ->leftJoin('combo_producto', 'combo.id_combo', '=', 'combo_producto.id_combo')
+                ->leftJoin('producto', 'combo_producto.id_producto', '=', 'producto.id_producto')
+                ->leftJoin('sucursal', 'combo.id_sucursal', '=', 'sucursal.id_sucursal')
+                ->select(
+                    'combo.id_combo',
+                    'combo.nombre',
+                    'combo.costo as precio',
+                    'combo.foto',
+                    'sucursal.nombre as sucursal',
+                    DB::raw('json_agg(json_build_object(
+                    \'producto\', producto.producto,
+                    \'cantidad\', combo_producto.cantidad
+                )) as productos')
+                )
+                ->groupBy('combo.id_combo', 'sucursal.nombre')
+                ->get()
+                ->map(function ($item) {
+                    // Decodificar productos
+                    $item->productos = json_decode($item->productos, true) ?? [];
+
+                    // Convertir foto a URL pública (solo si existe)
+                    if ($item->foto) {
+                        $item->imagen = Storage::url($item->foto);
+                        unset($item->foto);
+                    }
+
+                    // Convertir costo a número
+                    $item->precio = (float)str_replace(',', '.', $item->precio);
+
+                    return $item;
+                });
+
+            return response()->json($combos);
+        } catch (\Exception $e) {
+            return response()->json([
+                'error' => 'Error al obtener combos activos.',
+                'detalle' => $e->getMessage()
+            ], 500);
+        }
     }
 }
