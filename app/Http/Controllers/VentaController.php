@@ -119,7 +119,7 @@ class VentaController extends Controller
             $idUsuario = $usuario->id_usuario;
 
             // Determinar sucursal según el rol
-            if ($usuario->id_rol != 5) {
+            if ($usuario->id_rol != config('roles.superadmin')) {
                 $idSucursal = $usuario->id_sucursal;
             } else {
                 $request->validate([
@@ -343,7 +343,7 @@ class VentaController extends Controller
 
             // Si NO es superadmin (id_rol <> 5), usa la sucursal del token
             // Si es superadmin, valida que haya una sucursal recibida en el request
-            if ($usuario->id_rol != 5) {
+            if ($usuario->id_rol != config('roles.superadmin')) {
                 $idSucursal = $usuario->id_sucursal;
             } else {
                 $request->validate([
@@ -434,7 +434,7 @@ class VentaController extends Controller
 
 
             //  Filtrar por sucursal según rol
-            if ($usuario->id_rol != 5) {
+            if ($usuario->id_rol != config('roles.superadmin')) {
                 $validated['id_sucursal'] = $usuario->id_sucursal;
             } else {
                 $request->validate([
@@ -478,7 +478,10 @@ class VentaController extends Controller
                     'venta.descuento_gral',
                     'venta.id_sucursal',
                     'venta.metodo_pago',
-                    'usuario.nombre as vendedor'
+                    'usuario.id_usuario',
+                    'usuario.nombre as vendedor_nombre',
+                    'usuario.apellido as vendedor_apellido'
+
                 )
                 ->when($validated['id_sucursal'] ?? null, fn($q, $id) => $q->where('venta.id_sucursal', $id))
                 ->when($validated['metodo_pago'] ?? null, fn($q, $mp) => $q->where('venta.metodo_pago', strtolower($mp)))
@@ -512,6 +515,7 @@ class VentaController extends Controller
                 ->join('venta', 'venta.id_venta', '=', 'venta_producto.id_venta')
                 ->when($validated['id_sucursal'] ?? null, fn($q, $id) => $q->where('venta.id_sucursal', $id))
                 ->when($validated['fecha_desde'] ?? null, fn($q, $f) => $q->whereDate('venta.fecha', '>=', $f))
+                ->when($validated['metodo_pago'] ?? null, fn($q, $mp) => $q->where('venta.metodo_pago', strtolower($mp)))
                 ->when($validated['fecha_hasta'] ?? null, fn($q, $f) => $q->whereDate('venta.fecha', '<=', $f))
                 ->sum('venta_producto.cantidad');
 
@@ -525,11 +529,17 @@ class VentaController extends Controller
 
             // 🧍Top vendedores
             $topVendedores = $ventas
-                ->groupBy('vendedor')
-                ->map(fn($v) => $v->count())
-                ->sortDesc()
-                ->take(3) //tomo solo los primeros 3
-                ->map(fn($count, $nombre) => ['nombre' => $nombre, 'ventas' => $count])
+                ->groupBy('id_usuario') // agrupamos por usuario real
+                ->map(function ($ventasUsuario) {
+                    $vendedor = $ventasUsuario->first();
+                    return [
+                        'nombre'   => $vendedor->vendedor_nombre,
+                        'apellido' => $vendedor->vendedor_apellido,
+                        'ventas'   => $ventasUsuario->count()
+                    ];
+                })
+                ->sortByDesc('ventas')
+                ->take(3)
                 ->values();
 
             //  Ventas por fecha
@@ -548,8 +558,8 @@ class VentaController extends Controller
                 ->when($validated['id_sucursal'] ?? null, fn($q, $id) => $q->where('venta.id_sucursal', $id))
                 ->when($validated['fecha_desde'] ?? null, fn($q, $f) => $q->whereDate('venta.fecha', '>=', $f))
                 ->when($validated['fecha_hasta'] ?? null, fn($q, $f) => $q->whereDate('venta.fecha', '<=', $f))
-                ->select('producto.producto', DB::raw('SUM(venta_producto.cantidad) as cantidad'))
-                ->groupBy('producto.producto')
+                ->select('producto.producto', 'producto.costo', 'producto.foto', DB::raw('SUM(venta_producto.cantidad) as cantidad'))
+                ->groupBy('producto.producto', 'producto.costo', 'producto.foto')
                 ->orderByDesc('cantidad')
                 ->limit(5)
                 ->get();
@@ -561,8 +571,8 @@ class VentaController extends Controller
                 ->when($validated['id_sucursal'] ?? null, fn($q, $id) => $q->where('venta.id_sucursal', $id))
                 ->when($validated['fecha_desde'] ?? null, fn($q, $f) => $q->whereDate('venta.fecha', '>=', $f))
                 ->when($validated['fecha_hasta'] ?? null, fn($q, $f) => $q->whereDate('venta.fecha', '<=', $f))
-                ->select('combo.nombre', DB::raw('SUM(venta_combo.cantidad) as cantidad'))
-                ->groupBy('combo.nombre')
+                ->select('combo.nombre', 'combo.foto', 'combo.costo', DB::raw('SUM(venta_combo.cantidad) as cantidad'))
+                ->groupBy('combo.nombre', 'combo.foto', 'combo.costo')
                 ->orderByDesc('cantidad')
                 ->limit(5)
                 ->get();
@@ -588,6 +598,234 @@ class VentaController extends Controller
         }
     }
 
+
+    //GENERAR INFORME GENERAL SOLO PARA EL SUPERADMIN
+    public function generarInformeGeneral(Request $request)
+    {
+        try {
+            $usuario = JWTAuth::parseToken()->authenticate();
+
+            // Solo superadmin puede acceder a este endpoint
+            if ($usuario->id_rol != config('roles.superadmin')) {
+                return response()->json([
+                    'error' => 'No tienes permisos para acceder a este informe'
+                ], 403);
+            }
+
+            $validated = $request->validate([
+                'periodo_ventas' => 'nullable|string',
+                'fecha_desde' => 'nullable|date',
+                'fecha_hasta' => 'nullable|date',
+                'metodo_pago' => 'nullable|string',
+            ]);
+
+            // AJUSTAR FILTROS SEGÚN EL PERIODO DE VENTAS
+            $fechaDesde = null;
+            $fechaHasta = null;
+
+            if ($request->periodo_ventas !== null) {
+                if (
+                    $request->periodo_ventas === "Ver ventas desde el" &&
+                    $request->fecha_desde !== null && $request->fecha_hasta !== null
+                ) {
+                    $fechaDesde = Carbon::parse($request->fecha_desde)->startOfDay();
+                    $fechaHasta = Carbon::parse($request->fecha_hasta)->endOfDay();
+                } elseif (
+                    $request->periodo_ventas === "Ventas del mes de" &&
+                    $request->mes_venta !== null && $request->anio_venta !== null
+                ) {
+                    $fechaDesde = Carbon::create($request->anio_venta, $request->mes_venta, 1)->startOfMonth();
+                    $fechaHasta = Carbon::create($request->anio_venta, $request->mes_venta, 1)->endOfMonth();
+                } elseif ($request->periodo_ventas === "Todas las ventas") {
+                    $fechaDesde = null;
+                    $fechaHasta = null;
+                }
+            }
+
+            // OBTENER TODAS LAS SUCURSALES
+            $sucursales = DB::table('sucursal')->get();
+
+            if ($sucursales->isEmpty()) {
+                return response()->json([
+                    'error' => 'No hay sucursales registradas'
+                ], 404);
+            }
+
+            // MÉTRICAS GENERALES DE VENTAS (INGRESO)
+            $ventasGenerales = DB::table('venta')
+                ->join('usuario', 'venta.id_usuario', '=', 'usuario.id_usuario')
+                ->select(
+                    'venta.id_venta',
+                    'venta.fecha',
+                    'venta.total',
+                    'venta.descuento_gral',
+                    'venta.id_sucursal'
+                )
+                ->when($validated['metodo_pago'] ?? null, fn($q, $mp) => $q->where('venta.metodo_pago', strtolower($mp)))
+                ->when($fechaDesde, fn($q) => $q->whereDate('venta.fecha', '>=', $fechaDesde))
+                ->when($fechaHasta, fn($q) => $q->whereDate('venta.fecha', '<=', $fechaHasta))
+                ->get();
+
+            $totalVendido = $ventasGenerales->sum(fn($v) => $v->total * (1 - ($v->descuento_gral / 100)));
+            $cantidadVentas = $ventasGenerales->count();
+
+            // Total de productos vendidos
+            $cantProductosVendidos = DB::table('venta_producto')
+                ->join('venta', 'venta.id_venta', '=', 'venta_producto.id_venta')
+                ->when($validated['metodo_pago'] ?? null, fn($q, $mp) => $q->where('venta.metodo_pago', strtolower($mp)))
+                ->when($fechaDesde, fn($q) => $q->whereDate('venta.fecha', '>=', $fechaDesde))
+                ->when($fechaHasta, fn($q) => $q->whereDate('venta.fecha', '<=', $fechaHasta))
+                ->sum('venta_producto.cantidad');
+
+            // Total de combos vendidos
+            $cantCombosVendidos = DB::table('venta_combo')
+                ->join('venta', 'venta.id_venta', '=', 'venta_combo.id_venta')
+                ->when($validated['metodo_pago'] ?? null, fn($q, $mp) => $q->where('venta.metodo_pago', strtolower($mp)))
+                ->when($fechaDesde, fn($q) => $q->whereDate('venta.fecha', '>=', $fechaDesde))
+                ->when($fechaHasta, fn($q) => $q->whereDate('venta.fecha', '<=', $fechaHasta))
+                ->sum('venta_combo.cantidad');
+
+            // MÉTRICAS GENERALES DE COMPRAS (EGRESO)
+            $comprasGenerales = DB::table('compra')
+                ->select(
+                    'compra.id_compra',
+                    'compra.fecha',
+                    'compra.total',
+                    'compra.id_sucursal'
+                )
+                ->when($fechaDesde, fn($q) => $q->whereDate('compra.fecha', '>=', $fechaDesde))
+                ->when($fechaHasta, fn($q) => $q->whereDate('compra.fecha', '<=', $fechaHasta))
+                ->get();
+
+            $totalCompras = $comprasGenerales->sum('total');
+            $cantidadCompras = $comprasGenerales->count();
+
+            // Total de productos comprados
+            $cantProductosComprados = DB::table('compra_producto')
+                ->join('compra', 'compra.id_compra', '=', 'compra_producto.id_compra')
+                ->when($fechaDesde, fn($q) => $q->whereDate('compra.fecha', '>=', $fechaDesde))
+                ->when($fechaHasta, fn($q) => $q->whereDate('compra.fecha', '<=', $fechaHasta))
+                ->sum('compra_producto.cantidad');
+
+            // DATOS POR SUCURSAL
+            $datosSucursales = $sucursales->map(function ($sucursal) use ($validated, $fechaDesde, $fechaHasta) {
+                // Productos más vendidos por sucursal (top 10)
+                $productosMasVendidos = DB::table('venta_producto')
+                    ->join('producto', 'producto.id_producto', '=', 'venta_producto.id_producto')
+                    ->join('venta', 'venta.id_venta', '=', 'venta_producto.id_venta')
+                    ->where('venta.id_sucursal', $sucursal->id_sucursal)
+                    ->when($validated['metodo_pago'] ?? null, fn($q, $mp) => $q->where('venta.metodo_pago', strtolower($mp)))
+                    ->when($fechaDesde, fn($q) => $q->whereDate('venta.fecha', '>=', $fechaDesde))
+                    ->when($fechaHasta, fn($q) => $q->whereDate('venta.fecha', '<=', $fechaHasta))
+                    ->select('producto.producto', DB::raw('SUM(venta_producto.cantidad) as cantidad'))
+                    ->groupBy('producto.producto')
+                    ->orderByDesc('cantidad')
+                    ->limit(10)
+                    ->get();
+
+                // Productos MENOS vendidos por sucursal (top 10)
+                $productosMenosVendidos = DB::table('venta_producto')
+                    ->join('producto', 'producto.id_producto', '=', 'venta_producto.id_producto')
+                    ->join('venta', 'venta.id_venta', '=', 'venta_producto.id_venta')
+                    ->where('venta.id_sucursal', $sucursal->id_sucursal)
+                    ->when($validated['metodo_pago'] ?? null, fn($q, $mp) => $q->where('venta.metodo_pago', strtolower($mp)))
+                    ->when($fechaDesde, fn($q) => $q->whereDate('venta.fecha', '>=', $fechaDesde))
+                    ->when($fechaHasta, fn($q) => $q->whereDate('venta.fecha', '<=', $fechaHasta))
+                    ->select('producto.producto', DB::raw('SUM(venta_producto.cantidad) as cantidad'))
+                    ->groupBy('producto.producto')
+                    ->orderBy('cantidad', 'asc')
+                    ->limit(10)
+                    ->get();
+
+                // Combos más vendidos por sucursal (top 10)
+                $combosMasVendidos = DB::table('venta_combo')
+                    ->join('combo', 'combo.id_combo', '=', 'venta_combo.id_combo')
+                    ->join('venta', 'venta.id_venta', '=', 'venta_combo.id_venta')
+                    ->where('venta.id_sucursal', $sucursal->id_sucursal)
+                    ->when($validated['metodo_pago'] ?? null, fn($q, $mp) => $q->where('venta.metodo_pago', strtolower($mp)))
+                    ->when($fechaDesde, fn($q) => $q->whereDate('venta.fecha', '>=', $fechaDesde))
+                    ->when($fechaHasta, fn($q) => $q->whereDate('venta.fecha', '<=', $fechaHasta))
+                    ->select('combo.nombre', DB::raw('SUM(venta_combo.cantidad) as cantidad'))
+                    ->groupBy('combo.nombre')
+                    ->orderByDesc('cantidad')
+                    ->limit(10)
+                    ->get();
+
+                // Combos MENOS vendidos por sucursal (top 10)
+                $combosMenosVendidos = DB::table('venta_combo')
+                    ->join('combo', 'combo.id_combo', '=', 'venta_combo.id_combo')
+                    ->join('venta', 'venta.id_venta', '=', 'venta_combo.id_venta')
+                    ->where('venta.id_sucursal', $sucursal->id_sucursal)
+                    ->when($validated['metodo_pago'] ?? null, fn($q, $mp) => $q->where('venta.metodo_pago', strtolower($mp)))
+                    ->when($fechaDesde, fn($q) => $q->whereDate('venta.fecha', '>=', $fechaDesde))
+                    ->when($fechaHasta, fn($q) => $q->whereDate('venta.fecha', '<=', $fechaHasta))
+                    ->select('combo.nombre', DB::raw('SUM(venta_combo.cantidad) as cantidad'))
+                    ->groupBy('combo.nombre')
+                    ->orderBy('cantidad', 'asc')
+                    ->limit(10)
+                    ->get();
+
+                // Ventas por fecha para esa sucursal
+                $ventasPorFecha = DB::table('venta')
+                    ->where('venta.id_sucursal', $sucursal->id_sucursal)
+                    ->when($validated['metodo_pago'] ?? null, fn($q, $mp) => $q->where('venta.metodo_pago', strtolower($mp)))
+                    ->when($fechaDesde, fn($q) => $q->whereDate('venta.fecha', '>=', $fechaDesde))
+                    ->when($fechaHasta, fn($q) => $q->whereDate('venta.fecha', '<=', $fechaHasta))
+                    ->select('venta.fecha', 'venta.total', 'venta.descuento_gral')
+                    ->orderBy('venta.fecha', 'asc')
+                    ->get()
+                    ->groupBy(fn($v) => date('Y-m-d', strtotime($v->fecha)))
+                    ->map(fn($ventasDia) => [
+                        'fecha' => date('d/m', strtotime($ventasDia->first()->fecha)),
+                        'Total' => round($ventasDia->sum(fn($v) => $v->total * (1 - ($v->descuento_gral / 100))), 2),
+                    ])
+                    ->values();
+
+                // Productos comprados por sucursal (top 10 menos comprados)
+                $productosComprados = DB::table('compra_producto')
+                    ->join('producto', 'producto.id_producto', '=', 'compra_producto.id_producto')
+                    ->join('compra', 'compra.id_compra', '=', 'compra_producto.id_compra')
+                    ->where('compra.id_sucursal', $sucursal->id_sucursal)
+                    ->when($fechaDesde, fn($q) => $q->whereDate('compra.fecha', '>=', $fechaDesde))
+                    ->when($fechaHasta, fn($q) => $q->whereDate('compra.fecha', '<=', $fechaHasta))
+                    ->select('producto.producto', DB::raw('SUM(compra_producto.cantidad) as cantidad'))
+                    ->groupBy('producto.producto')
+                    ->orderBy('cantidad', 'asc')
+                    ->limit(10)
+                    ->get();
+
+                return [
+                    'id_sucursal' => $sucursal->id_sucursal,
+                    'nombre_sucursal' => $sucursal->nombre,
+                    'productos_mas_vendidos' => $productosMasVendidos,
+                    'productos_menos_vendidos' => $productosMenosVendidos,
+                    'combos_mas_vendidos' => $combosMasVendidos,
+                    'combos_menos_vendidos' => $combosMenosVendidos,
+                    'ventas_por_fecha' => $ventasPorFecha,
+                    'productos_comprados' => $productosComprados,
+                ];
+            })->values();
+
+            return response()->json([
+                'metricas' => [
+                    'total_vendido' => round($totalVendido, 2),
+                    'cantidad_ventas' => $cantidadVentas,
+                    'productos_vendidos' => $cantProductosVendidos ?? 0,
+                    'combos_vendidos' => $cantCombosVendidos ?? 0,
+                    'total_compras' => round($totalCompras, 2),
+                    'cantidad_compras' => $cantidadCompras,
+                    'productos_comprados' => $cantProductosComprados ?? 0,
+                ],
+                'sucursales' => $datosSucursales,
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'error' => 'Error al generar informe general',
+                'detalle' => $e->getMessage(),
+                'linea' => $e->getLine(),
+            ], 500);
+        }
+    }
     // mETODO PARA VALIDAR QUE HAYA STOCK SUFICIENTE ANTES DE HACER LA VENTA POR MP
 
     public function validarStock(Request $request)
@@ -598,7 +836,7 @@ class VentaController extends Controller
             $idUsuario = $usuario->id_usuario;
 
             // Determinar sucursal según el rol
-            if ($usuario->id_rol != 5) {
+            if ($usuario->id_rol != config('roles.superadmin')) {
                 $idSucursal = $usuario->id_sucursal;
             } else {
                 $request->validate([

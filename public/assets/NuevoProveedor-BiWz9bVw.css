@@ -1,0 +1,1 @@
+.__formulario_proveedor{display:flex;flex-direction:column}.__cuerpo_proveedor{display:1;display:flex}.__cuerpo_proveedor .__primera_columna,.__cuerpo_proveedor .__segunda_columna{flex:1;margin-left:20px;display:flex;flex-direction:column;gap:30px}.__boton_prov{display:1;display:flex;justify-content:center;align-content:center;margin:30px 0 10px}

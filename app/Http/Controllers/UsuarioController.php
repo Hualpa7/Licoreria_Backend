@@ -18,7 +18,7 @@ class UsuarioController extends Controller
 
     public function index()
     {
-        return Usuario::all();
+        return Usuario::with('sucursal', 'rol')->get();
     }
 
 
@@ -52,6 +52,10 @@ class UsuarioController extends Controller
 
         $usuario = Usuario::where(['correo' => $credentials['correo']])->first();
 
+        // NUEVOOO Verificar que el usuario esté activo
+        if (!$usuario->activo) {
+            return response()->json(['error' => 'Usuario dado de baja. Contacte al administrador'], 403);
+        }
 
         if (!Hash::check($credentials['contraseña'], $usuario->contraseña))
             return response()->json(['error' => 'Unauthoriezed'], 401);
@@ -222,6 +226,43 @@ class UsuarioController extends Controller
     public function destroy(string $id)
     {
         //
+    }
+
+    // MÉTODO PARA DAR DE BAJA UN USUARIO
+    public function darDeAltaBaja(Request $request, $id_usuario)
+    {
+        $request->validate([
+            'activo' => 'required|boolean'
+        ]);
+
+        try {
+            $usuario = Usuario::find($id_usuario);
+
+            if (!$usuario) {
+                return response()->json(['error' => 'Usuario no encontrado'], 404);
+            }
+
+            // para prevenri que se dé de baja a sí mismo
+            $usuarioActual = JWTAuth::parseToken()->authenticate();
+            if ($usuarioActual->id_usuario === (int)$id_usuario) {
+                return response()->json(['error' => 'No puedes cambiar tu propio estado'], 403);
+            }
+
+            $usuario->activo = $request->input('activo');
+            $usuario->save();
+
+            $accion = $usuario->activo ? 'reactivado' : 'dado de baja';
+
+            return response()->json([
+                'message' => "Usuario $accion correctamente",
+                'usuario' => $usuario
+            ], 200);
+        } catch (\Exception $e) {
+            return response()->json([
+                'error' => 'Error al actualizar el estado del usuario',
+                'detalle' => $e->getMessage()
+            ], 500);
+        }
     }
 
     //FUNCION PARA AGREGAR O ELIMINAR PERMISOS EXTRA

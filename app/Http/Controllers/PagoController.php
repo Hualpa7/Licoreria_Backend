@@ -53,9 +53,7 @@ class PagoController extends Controller
                 'external_reference' => $externalReference
             ]);
 
-            $baseUrl = env('APP_ENV') === 'local'
-                ? (env('NGROK_URL') ?: env('APP_URL'))
-                : env('APP_URL');
+            $baseUrl = env('NGROK_URL') ?: env('APP_URL');
 
             $preferenceData = [
                 "items" => [
@@ -304,7 +302,7 @@ class PagoController extends Controller
                 'total' => $datosVenta['total'],
                 'total_con_descuento' => $datosVenta['total_con_descuento'],
                 'descuento_gral' => $datosVenta['descuento_gral'],
-                'metodo_pago' => 'Transferencia',
+                'metodo_pago' => $datosVenta['metodo_pago'],
             ]);
 
             foreach ($datosVenta['productos'] as $item) {

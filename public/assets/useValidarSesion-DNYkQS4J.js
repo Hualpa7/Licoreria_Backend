@@ -1,0 +1,2 @@
+import{k as u,r as o,i as c}from"./index-CYXyWpkk.js";const d=()=>{const{token:e,usuario:t}=u(),[s,r]=o.useState(!1),a=c();return o.useEffect(()=>{const i=setTimeout(()=>{r(!0)},200),n=u.persist.onFinishHydration(()=>{clearTimeout(i),r(!0)});return()=>{clearTimeout(i),n()}},[]),o.useEffect(()=>{s&&(!e||!t)&&(alert("No puede acceder. Inicie sesión."),a("/inicioSesion"))},[s,e,t,a]),{storeCargado:s,token:e,usuario:t}};export{d as u};
+//# sourceMappingURL=useValidarSesion-DNYkQS4J.js.map

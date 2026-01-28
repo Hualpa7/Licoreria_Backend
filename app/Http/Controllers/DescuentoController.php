@@ -41,7 +41,7 @@ class DescuentoController extends Controller
             $usuario = JWTAuth::parseToken()->authenticate();
 
             // Determinar sucursal según el rol
-            if ($usuario->id_rol != 5) {
+            if ($usuario->id_rol != config('roles.superadmin')) {
                 $idSucursal = $usuario->id_sucursal;
             } else {
                 $request->validate([
@@ -159,7 +159,7 @@ class DescuentoController extends Controller
             $usuario = JWTAuth::parseToken()->authenticate();
 
             // Determinar sucursal según el rol
-            if ($usuario->id_rol != 5) {
+            if ($usuario->id_rol != config('roles.superadmin')) {
                 $idSucursal = $usuario->id_sucursal;
             } else {
                 $request->validate([

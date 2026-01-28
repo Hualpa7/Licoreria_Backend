@@ -55,7 +55,7 @@ class ComboController extends Controller
 
             // Si NO es superadmin (id_rol <> 5), usa la sucursal del token
             // Si es superadmin, valida que haya una sucursal recibida en el request
-            if ($usuario->id_rol != 5) {
+            if ($usuario->id_rol != config('roles.superadmin')) {
                 $idSucursal = $usuario->id_sucursal;
             } else {
                 $request->validate([
@@ -108,7 +108,7 @@ class ComboController extends Controller
             $usuario = JWTAuth::parseToken()->authenticate();
 
             // Determinar sucursal según el rol
-            if ($usuario->id_rol != 5) {
+            if ($usuario->id_rol != config('roles.superadmin')) {
                 $idSucursal = $usuario->id_sucursal;
             } else {
                 $request->validate([
@@ -241,7 +241,7 @@ class ComboController extends Controller
             $usuario = JWTAuth::parseToken()->authenticate();
 
             // Determinar sucursal
-            if ($usuario->id_rol != 5) {
+            if ($usuario->id_rol != config('roles.superadmin')) {
                 $idSucursal = $usuario->id_sucursal;
             } else {
                 $request->validate([
@@ -322,96 +322,95 @@ class ComboController extends Controller
     }
 
     public function activar($id, Request $request)
-{
-    $request->validate([
-        'nuevo_vencimiento' => 'required|date|after:today',
-    ], [
-        'nuevo_vencimiento.required' => 'Ingrese una fecha',
-        'nuevo_vencimiento.after' => 'La fecha de duración debe ser posterior al día actual.',
-    ]);
+    {
+        $request->validate([
+            'nuevo_vencimiento' => 'required|date|after:today',
+        ], [
+            'nuevo_vencimiento.required' => 'Ingrese una fecha',
+            'nuevo_vencimiento.after' => 'La fecha de duración debe ser posterior al día actual.',
+        ]);
 
-    try {
-        // Autenticar usuario desde el token
-        $usuario = JWTAuth::parseToken()->authenticate();
-        $idUsuario = $usuario->id_usuario;
+        try {
+            // Autenticar usuario desde el token
+            $usuario = JWTAuth::parseToken()->authenticate();
+            $idUsuario = $usuario->id_usuario;
 
-        // Determinar sucursal según el rol
-        if ($usuario->id_rol != 5) {
-            // Es vendedor: toma la sucursal del token
-            $idSucursal = $usuario->id_sucursal;
-        } else {
-            // Es superAdmin: requiere que se envíe la sucursal
-            $request->validate([
-                'id_sucursal' => 'required|exists:sucursal,id_sucursal'
-            ]);
-            $idSucursal = $request->id_sucursal;
-        }
-
-        // Buscar el combo
-        $combo = Combo::findOrFail($id);
-
-        // Obtener los productos que conforman el combo
-        $productosCombo = DB::table('combo_producto')
-            ->where('combo_producto.id_combo', $combo->id_combo)
-            ->select(
-                'combo_producto.id_producto',
-                'combo_producto.cantidad',
-                'producto.producto'
-            )
-            ->join('producto', 'combo_producto.id_producto', '=', 'producto.id_producto')
-            ->get();
-
-        // Validar que el combo tenga productos
-        if ($productosCombo->isEmpty()) {
-            return response()->json([
-                'error' => 'El combo no tiene productos asociados',
-            ], 400);
-        }
-
-        // Revisar el stock de cada producto en la sucursal
-        $productosSinStock = [];
-
-        foreach ($productosCombo as $producto) {
-            $stockDisponible = DB::table('stock')
-                ->where('id_producto', $producto->id_producto)
-                ->where('id_sucursal', $idSucursal)
-                ->sum('cantidad');
-
-            // Verificar si hay stock suficiente (cantidad requerida en el combo)
-            if ($producto->cantidad > $stockDisponible) {
-                $productosSinStock[] = [
-                    'producto' => $producto->producto,
-                    'requerido' => $producto->cantidad,
-                    'disponible' => $stockDisponible
-                ];
+            // Determinar sucursal según el rol
+            if ($usuario->id_rol != config('roles.superadmin')) {
+                // Es vendedor: toma la sucursal del token
+                $idSucursal = $usuario->id_sucursal;
+            } else {
+                // Es superAdmin: requiere que se envíe la sucursal
+                $request->validate([
+                    'id_sucursal' => 'required|exists:sucursal,id_sucursal'
+                ]);
+                $idSucursal = $request->id_sucursal;
             }
-        }
 
-        // Si hay productos sin stock suficiente, retornar error
-        if (!empty($productosSinStock)) {
+            // Buscar el combo
+            $combo = Combo::findOrFail($id);
+
+            // Obtener los productos que conforman el combo
+            $productosCombo = DB::table('combo_producto')
+                ->where('combo_producto.id_combo', $combo->id_combo)
+                ->select(
+                    'combo_producto.id_producto',
+                    'combo_producto.cantidad',
+                    'producto.producto'
+                )
+                ->join('producto', 'combo_producto.id_producto', '=', 'producto.id_producto')
+                ->get();
+
+            // Validar que el combo tenga productos
+            if ($productosCombo->isEmpty()) {
+                return response()->json([
+                    'error' => 'El combo no tiene productos asociados',
+                ], 400);
+            }
+
+            // Revisar el stock de cada producto en la sucursal
+            $productosSinStock = [];
+
+            foreach ($productosCombo as $producto) {
+                $stockDisponible = DB::table('stock')
+                    ->where('id_producto', $producto->id_producto)
+                    ->where('id_sucursal', $idSucursal)
+                    ->sum('cantidad');
+
+                // Verificar si hay stock suficiente (cantidad requerida en el combo)
+                if ($producto->cantidad > $stockDisponible) {
+                    $productosSinStock[] = [
+                        'producto' => $producto->producto,
+                        'requerido' => $producto->cantidad,
+                        'disponible' => $stockDisponible
+                    ];
+                }
+            }
+
+            // Si hay productos sin stock suficiente, retornar error
+            if (!empty($productosSinStock)) {
+                return response()->json([
+                    'error' => 'No hay stock suficiente para activar este combo',
+                    'detalles' => $productosSinStock,
+                ], 400);
+            }
+
+            // Si todo es válido, activar el combo
+            $combo->duracion = $request->nuevo_vencimiento;
+            $combo->activo = true;
+            $combo->save();
+
             return response()->json([
-                'error' => 'No hay stock suficiente para activar este combo',
-                'detalles' => $productosSinStock,
+                'message' => 'Combo activado correctamente',
+                'combo' => $combo
+            ], 200);
+        } catch (\Exception $e) {
+            return response()->json([
+                'error' => 'Error al activar el combo',
+                'detalle' => $e->getMessage(),
             ], 400);
         }
-
-        // Si todo es válido, activar el combo
-        $combo->duracion = $request->nuevo_vencimiento;
-        $combo->activo = true;
-        $combo->save();
-
-        return response()->json([
-            'message' => 'Combo activado correctamente',
-            'combo' => $combo
-        ], 200);
-
-    } catch (\Exception $e) {
-        return response()->json([
-            'error' => 'Error al activar el combo',
-            'detalle' => $e->getMessage(),
-        ], 400);
     }
-}
 
 
     //COMBOSQUE SE MSTRARRAN EN INICIO
@@ -429,6 +428,7 @@ class ComboController extends Controller
                     'combo.nombre',
                     'combo.costo as precio',
                     'combo.foto',
+                    'combo.duracion as vencimiento',
                     'sucursal.nombre as sucursal',
                     DB::raw('json_agg(json_build_object(
                     \'producto\', producto.producto,
@@ -457,6 +457,52 @@ class ComboController extends Controller
         } catch (\Exception $e) {
             return response()->json([
                 'error' => 'Error al obtener combos activos.',
+                'detalle' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    //combos mas vendidos
+    public function comboMasVendido()
+    {
+        try {
+            $comboMasVendido = DB::table('venta_combo')
+                ->join('combo', 'combo.id_combo', '=', 'venta_combo.id_combo')
+                ->join('venta', 'venta.id_venta', '=', 'venta_combo.id_venta')
+                ->join('sucursal', 'combo.id_sucursal', '=', 'sucursal.id_sucursal')
+                ->select(
+                    'combo.id_combo',
+                    'combo.nombre',
+                    'combo.costo as precio',
+                    'combo.foto as imagen',
+                    'sucursal.nombre as sucursal',
+                    DB::raw('SUM(venta_combo.cantidad) as total_vendido')
+                )
+                ->groupBy('combo.id_combo', 'combo.nombre', 'combo.costo', 'combo.foto', 'sucursal.nombre')
+                ->orderByDesc('total_vendido')
+                ->limit(1)
+                ->first();
+
+            if (!$comboMasVendido) {
+                return response()->json([
+                    'error' => 'No hay datos de ventas disponibles'
+                ], 404);
+            }
+
+            // Convertir foto a URL pública
+            if ($comboMasVendido->imagen) {
+                $comboMasVendido->imagen = Storage::url($comboMasVendido->imagen);
+            } else {
+                $comboMasVendido->imagen = null;
+            }
+
+            // Convertir precio a número
+            $comboMasVendido->precio = (float)str_replace(',', '.', $comboMasVendido->precio);
+
+            return response()->json($comboMasVendido);
+        } catch (\Exception $e) {
+            return response()->json([
+                'error' => 'Error al obtener el combo más vendido',
                 'detalle' => $e->getMessage()
             ], 500);
         }

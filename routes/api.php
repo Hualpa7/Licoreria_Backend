@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\AlertaStockController;
 use App\Http\Controllers\CategoriaController;
 use App\Http\Controllers\ComboController;
 use App\Http\Controllers\CompraController;
@@ -56,24 +57,35 @@ Route::middleware('checkPermiso:crear categoria')->put('/categoria/{id}', [Categ
 
 //RUTAS PROTEGIDAS DE COMPRA
 Route::get('/compra/anios', [CompraController::class,'obtenerAnios']);
+
+Route::middleware('checkPermiso:ver informe')->post('/compra/informe', [CompraController::class, 'generarInforme']);
+
 Route::resource('/compra',CompraController::class) ->except(['store']);
 Route::post('/compra/filtro', [CompraController::class,'filtro']);
 //ruta de compra con middleware de permiso
 Route::middleware('checkPermiso:comprar')->post('/compra', [CompraController::class, 'store']);
+ 
 
 //RUTAS PROTEGIDAS DE VENTA
 Route::get('/venta/cantidadTotalVentas', [VentaController::class,'cantidadTotalVentas']);
 Route::get('/venta/anios', [VentaController::class,'obtenerAnios']);
+
+Route::middleware('checkPermiso:ver informe')->post('/venta/informe', [VentaController::class, 'generarInforme']);
+Route::middleware('checkPermiso:ver informe')->post('/venta/informe-general', [VentaController::class, 'generarInformeGeneral']);
+
 Route::resource('/venta',VentaController::class) ->except(['store']); 
 Route::post('/venta/filtro', [VentaController::class,'filtro']);
 
 
+
 //ruta de Venta con middleware de permiso
 Route::middleware('checkPermiso:vender')->post('/venta', [VentaController::class, 'store']);
-Route::middleware('checkPermiso:ver informe')->post('/venta/informe', [VentaController::class, 'generarInforme']);
+
+//Route::middleware('checkPermiso:ver informe')->post('/venta/informe-general', [VentaController::class, 'generarInformeGeneral']);
 
 //RUTAS PROTEGIDAS DE PRODUCTO
 Route::get('/producto/descuentos', [ProductoController::class, 'productosConDescuentos']);
+Route::get('/producto/masVendido', [ProductoController::class, 'productoMasVendido']);
 Route::post('/producto/filtro', [ProductoController::class,'filtro']);
 Route::post('/producto/buscar', [ProductoController::class,'buscar']);
 
@@ -102,6 +114,8 @@ Route::post('/usuario/reset', [UsuarioController::class, 'resetPassword']);
 //rutas de Usuario con middleware de permiso
 Route::middleware('checkPermiso:crear usuario')->post('/usuario/registrar', [UsuarioController::class, 'register']);
 Route::middleware('checkPermiso:crear usuario')->put('/usuario/{id}', [UsuarioController::class, 'update']);
+// Dar de baja o reactivar usuario
+Route::middleware('checkPermiso:crear usuario')->patch('/usuario/{id}/baja', [UsuarioController::class, 'darDeAltaBaja']);
 Route::middleware('checkPermiso:modificar permisos')->post('/usuario/{id}/permisos_extra', [UsuarioController::class, 'actualizarPermisosExtra']);
 //rutas de Usuario con middleware autenticacion
 Route::middleware([JwtMiddleware::class])->group(function () {
@@ -130,6 +144,7 @@ Route::middleware('checkPermiso:crear descuento')->delete('/descuento/{id}', [De
 //RUTAS PROTEGIDAS DE COMBO
 Route::post('/combo/mostrarDesactivados', [ComboController::class,'mostrarDesactivados']);
 Route::get('/combo/mostrarActivados', [ComboController::class, 'mostrarActivados']);
+Route::get('/combo/masVendido', [ComboController::class, 'comboMasVendido']);
 Route::resource('/combo',ComboController::class) ->except(['store', 'update']);
 Route::post('/combo/filtro', [ComboController::class,'filtro']);
 Route::post('/combo/buscar', [ComboController::class,'buscar']);
@@ -157,7 +172,7 @@ Route::middleware('checkPermiso:agregar permisos')->post('/permiso/vincularPermi
 //RUTAS PROTEGIDAS DE STOCK
 Route::resource('/stock',StockController::class);;
 
-//RUTAS DE PPAGO
+//RUTAS DE PAGO
 // Rutas para pagos
 Route::post('/pagos/crear-preferencia', [PagoController::class, 'crearPreferenciaPago']);
 Route::post('/pagos/webhook', [PagoController::class, 'webhookMercadoPago']);
@@ -167,4 +182,15 @@ Route::get('/pagos/pending', [PagoController::class, 'pagoPendiente']);
 
 //para validar que haya stoc antes de hacer el pago con mercadopago
 Route::middleware('checkPermiso:vender')->post('/venta/validar-stock', [VentaController::class, 'validarStock']);
+
+//RUTAS DE ALERTASDESTOCK
+Route::middleware([JwtMiddleware::class])->group(function () {
+    // Obtener alertas de una sucursal específica
+    Route::post('/alerta-stock', [AlertaStockController::class, 'obtenerAlertasSucursal']);
+    // Contar alertas de una sucursal
+    Route::post('/alerta-stock/contar', [AlertaStockController::class, 'contarAlertasSucursal']);
+    // Obtener todas las alertas (solo SuperAdmin)
+    Route::get('/alerta-stock/todas', [AlertaStockController::class, 'obtenerTodasLasAlertas']);
+});
+
 

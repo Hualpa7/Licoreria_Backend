@@ -1,0 +1,2 @@
+import{j as s}from"./index-Bz4qtL_5.js";function _({descripcion:t,onClick:a,icono:o,habilitado:n,submit:e,title:c}){const i=o?`url("${o}")`:"",l=n?"habilitado":"no-habilitado",r=e?"submit":"button";return s.jsx("div",{className:"__boton",children:s.jsx("button",{type:r,className:l,onClick:a,disabled:!n,title:c,children:s.jsxs("div",{className:"__boton_contenido",children:[o&&s.jsx("span",{className:"__boton_icono",style:{backgroundImage:i}}),s.jsxs("span",{className:"__boton_descripcion",children:[" ",t]})]})})})}export{_ as B};
+//# sourceMappingURL=Boton-Clp55I55.js.map

@@ -83,7 +83,7 @@ class ProductoController extends Controller
     try {
       $usuario = JWTAuth::parseToken()->authenticate();
 
-      if ($usuario->id_rol != 5) {
+      if ($usuario->id_rol != config('roles.superadmin')) {
         $idSucursal = $usuario->id_sucursal;
       } else {
         $request->validate([
@@ -188,7 +188,7 @@ class ProductoController extends Controller
 
       // Si NO es superadmin (id_rol <> 5), usa la sucursal del token
       // Si es superadmin, valida que haya una sucursal recibida en el request
-      if ($usuario->id_rol != 5) {
+      if ($usuario->id_rol != config('roles.superadmin')) {
         $idSucursal = $usuario->id_sucursal;
       } else {
         $request->validate([
@@ -361,6 +361,7 @@ class ProductoController extends Controller
           'producto.foto as imagen',
           'descuento.porcentaje as descuentoPorcentaje',
           'sucursal.nombre as sucursal',
+          'descuento.duracion as vencimiento',
           'producto_descuento.id_sucursal'
         ])
         ->get()
@@ -388,4 +389,48 @@ class ProductoController extends Controller
       ], 500);
     }
   }
+
+  //producto mas vendido
+  public function productoMasVendido()
+{
+    try {
+        $productoMasVendido = DB::table('venta_producto')
+            ->join('producto', 'producto.id_producto', '=', 'venta_producto.id_producto')
+            ->join('venta', 'venta.id_venta', '=', 'venta_producto.id_venta')
+            ->select(
+                'producto.id_producto',
+                'producto.producto as nombre',
+                'producto.costo as precio',
+                'producto.foto as imagen',
+                DB::raw('SUM(venta_producto.cantidad) as total_vendido')
+            )
+            ->groupBy('producto.id_producto', 'producto.producto', 'producto.costo', 'producto.foto')
+            ->orderByDesc('total_vendido')
+            ->limit(1)
+            ->first();
+
+        if (!$productoMasVendido) {
+            return response()->json([
+                'error' => 'No hay datos de ventas disponibles'
+            ], 404);
+        }
+
+        // Convertir foto a URL pública
+        if ($productoMasVendido->imagen) {
+            $productoMasVendido->imagen = Storage::url($productoMasVendido->imagen);
+        } else {
+            $productoMasVendido->imagen = null;
+        }
+
+        // Convertir precio a número
+        $productoMasVendido->precio = (float)str_replace(',', '.', $productoMasVendido->precio);
+
+        return response()->json($productoMasVendido);
+    } catch (\Exception $e) {
+        return response()->json([
+            'error' => 'Error al obtener el producto más vendido',
+            'detalle' => $e->getMessage()
+        ], 500);
+    }
+}
 }

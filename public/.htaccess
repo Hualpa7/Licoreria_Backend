@@ -1,4 +1,7 @@
 <IfModule mod_rewrite.c>
+    # Prefer serving index.html (React build) before index.php
+    DirectoryIndex index.html index.php
+
     <IfModule mod_negotiation.c>
         Options -MultiViews -Indexes
     </IfModule>
@@ -14,8 +17,16 @@
     RewriteCond %{REQUEST_URI} (.+)/$
     RewriteRule ^ %1 [L,R=301]
 
-    # Send Requests To Front Controller...
-    RewriteCond %{REQUEST_FILENAME} !-d
-    RewriteCond %{REQUEST_FILENAME} !-f
+    # If the request is for an existing file or directory, serve it directly
+    RewriteCond %{REQUEST_FILENAME} -f [OR]
+    RewriteCond %{REQUEST_FILENAME} -d
+    RewriteRule ^ - [L]
+
+    # If the request is for API/backend routes, send to Laravel front controller
+    # Adjust the prefix if your API routes use a different base (e.g., /api)
+    RewriteCond %{REQUEST_URI} ^/api [NC]
     RewriteRule ^ index.php [L]
+
+    # Otherwise serve the SPA entrypoint (index.html)
+    RewriteRule ^ index.html [L]
 </IfModule>

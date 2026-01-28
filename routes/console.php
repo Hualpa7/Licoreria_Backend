@@ -13,3 +13,8 @@ Schedule::command('descuentos:desactivar-vencidos')->daily(); //con esto le digo
 
 // Desactiva combos vencidos una vez por día
 Schedule::command('combos:desactivar-vencidos')->daily();
+
+//Verifica alertas de stock cada minuto
+Schedule::command('stock:verificar-alertas')
+    ->everyMinute()
+    ->withoutOverlapping();

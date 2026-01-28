@@ -1,0 +1,2 @@
+import{j as s,m as e}from"./index-CwUAE1ar.js";import{R as a}from"./ResetearContrasenia-BNAYGOHd.js";/* empty css                            */function n(){return s.jsxs(s.Fragment,{children:[s.jsx("div",{className:"__topbar",children:s.jsxs("div",{className:"__topbar_logo_seccion",children:[s.jsx("img",{src:e,alt:"Ley Seca",className:"__topbar_logo"}),s.jsx("span",{className:"__topbar_nombre_empresa",children:"LEY SECA"})]})}),s.jsx(a,{})]})}export{n as default};
+//# sourceMappingURL=ReseteoContrasenia-CfAXWaJV.js.map

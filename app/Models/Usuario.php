@@ -26,7 +26,8 @@ class Usuario extends Authenticatable implements JWTSubject
         'contraseña',
         'id_rol',
         'id_sucursal',
-        'correo'
+        'correo',
+        'activo'
     ];
 
      //TUVE QUE AGREGAR ESTAS 2 FUNCIONES PORQUE LARAVEL ESTABA COMANDO POR DEFECTO EMAIL Y PASSWORD
