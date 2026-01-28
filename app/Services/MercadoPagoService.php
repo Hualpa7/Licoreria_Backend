@@ -2,23 +2,18 @@
 
 namespace App\Services;
 
-use MercadoPago\Client\Preference\PreferenceClient;
-use MercadoPago\Client\Payment\PaymentClient;
-use MercadoPago\MercadoPagoConfig;
-use Exception;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Exception;
 
 class MercadoPagoService
 {
-    private PreferenceClient $preferenceClient;
-    private PaymentClient $paymentClient;
+    private string $accessToken;
+    private string $baseUrl = 'https://api.mercadopago.com';
 
     public function __construct()
     {
-        // Configura el access token desde tu .env
-        MercadoPagoConfig::setAccessToken(env('MERCADOPAGO_ACCESS_TOKEN'));
-        $this->preferenceClient = new PreferenceClient();
-        $this->paymentClient = new PaymentClient();
+        $this->accessToken = env('MERCADOPAGO_ACCESS_TOKEN');
     }
 
     /**
@@ -27,16 +22,34 @@ class MercadoPagoService
     public function createPreference(array $preferenceData)
     {
         try {
-            $preference = $this->preferenceClient->create($preferenceData);
-            return $preference;
+            Log::info("🔄 Creando preferencia de pago");
+            
+            $response = Http::withToken($this->accessToken)
+                ->post("{$this->baseUrl}/checkout/preferences", $preferenceData);
+
+            if (!$response->successful()) {
+                Log::error("❌ Error creando preferencia", [
+                    'status' => $response->status(),
+                    'body' => $response->body()
+                ]);
+                throw new Exception("Error al crear preferencia: " . $response->body());
+            }
+
+            $preference = $response->json();
+            
+            Log::info("✅ Preferencia creada exitosamente", [
+                'id' => $preference['id'] ?? null
+            ]);
+
+            return (object) $preference;
         } catch (Exception $e) {
+            Log::error("❌ Exception en createPreference", [
+                'error' => $e->getMessage()
+            ]);
             throw new Exception('Error al crear la preferencia: ' . $e->getMessage());
         }
     }
 
-
-
-    
     /**
      * Obtener detalles de un pago
      */
@@ -44,17 +57,65 @@ class MercadoPagoService
     {
         try {
             Log::info("📡 Consultando payment: $paymentId");
-            $payment = $this->paymentClient->get($paymentId);
+
+            $response = Http::withToken($this->accessToken)
+                ->get("{$this->baseUrl}/v1/payments/{$paymentId}");
+
+            if (!$response->successful()) {
+                Log::error("❌ Error obteniendo payment", [
+                    'status' => $response->status(),
+                    'body' => $response->body()
+                ]);
+                throw new Exception("Error al obtener payment: " . $response->body());
+            }
+
+            $payment = $response->json();
+
             Log::info("✅ Payment obtenido exitosamente", [
-                'id' => $payment->id,
-                'status' => $payment->status
+                'id' => $payment['id'] ?? null,
+                'status' => $payment['status'] ?? null
             ]);
-            return $payment;
+
+            return (object) $payment;
         } catch (Exception $e) {
             Log::error("❌ Error en getPayment", [
                 'paymentId' => $paymentId,
-                'error' => $e->getMessage(),
-                'code' => $e->getCode()
+                'error' => $e->getMessage()
+            ]);
+            throw $e;
+        }
+    }
+
+    /**
+     * Obtener una orden de merchant
+     */
+    public function getMerchantOrder($orderId)
+    {
+        try {
+            Log::info("📡 Consultando merchant_order: $orderId");
+
+            $response = Http::withToken($this->accessToken)
+                ->get("{$this->baseUrl}/merchant_orders/{$orderId}");
+
+            if (!$response->successful()) {
+                Log::error("❌ Error obteniendo merchant_order", [
+                    'status' => $response->status(),
+                    'body' => $response->body()
+                ]);
+                throw new Exception("Error al obtener merchant_order: " . $response->body());
+            }
+
+            $order = $response->json();
+
+            Log::info("✅ Merchant Order obtenida exitosamente", [
+                'id' => $order['id'] ?? null
+            ]);
+
+            return (object) $order;
+        } catch (Exception $e) {
+            Log::error("❌ Error en getMerchantOrder", [
+                'orderId' => $orderId,
+                'error' => $e->getMessage()
             ]);
             throw $e;
         }

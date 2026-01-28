@@ -1,0 +1,1 @@
+import{j as r}from"./index-BUwjjkD8.js";import{R as e}from"./RecuperarContrasenia-NzpGuRz-.js";import"./Boton-CFc6qQdN.js";function n(){return r.jsx(r.Fragment,{children:r.jsx(e,{})})}export{n as default};

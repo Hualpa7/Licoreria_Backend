@@ -54,7 +54,7 @@ class PagoController extends Controller
             ]);
 
             $baseUrl = env('NGROK_URL') ?: env('APP_URL');
-
+            
             $preferenceData = [
                 "items" => [
                     [
@@ -151,30 +151,14 @@ class PagoController extends Controller
                 return response()->json(['status' => 'invalid url'], 400);
             }
 
-            $url = "https://api.mercadopago.com/merchant_orders/$orderId?access_token=" . env('MERCADOPAGO_ACCESS_TOKEN');
-
-            $ch = curl_init();
-            curl_setopt($ch, CURLOPT_URL, $url);
-            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-            curl_setopt($ch, CURLOPT_HTTPHEADER, ['Accept: application/json']);
-            $response = curl_exec($ch);
-            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-            curl_close($ch);
-
-            if ($httpCode !== 200) {
-                Log::error("merchant_order API error", [
-                    'response' => $response
-                ]);
-                return response()->json(['status' => 'api error'], 200);
-            }
-
-            $merchantOrder = json_decode($response, true);
+            // ✅ AHORA USAMOS EL MÉTODO DEL SERVICIO EN LUGAR DE CURL
+            $merchantOrder = $this->mercadoPagoService->getMerchantOrder($orderId);
 
             Log::info("merchant_order obtenida", [
-                'id' => $merchantOrder['id']
+                'id' => $merchantOrder->id
             ]);
 
-            foreach ($merchantOrder['payments'] ?? [] as $paymentInfo) {
+            foreach ($merchantOrder->payments ?? [] as $paymentInfo) {
                 $paymentId = is_array($paymentInfo) ? $paymentInfo['id'] : $paymentInfo;
 
                 try {
