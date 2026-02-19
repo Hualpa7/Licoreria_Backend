@@ -298,6 +298,9 @@ class ProductoController extends Controller
     try {
       DB::transaction(function () use ($request) {
 
+        // obtenemos nombres de sucursales (para guardar en observaciones)
+        $nombreOrigen = DB::table('sucursal')->where('id_sucursal', $request->sucursalOrigen)->value('nombre') ?? 'Sucursal ' . $request->sucursalOrigen;
+        $nombreDestino = DB::table('sucursal')->where('id_sucursal', $request->sucursalDestino)->value('nombre') ?? 'Sucursal ' . $request->sucursalDestino;
 
         // Verificamos stock disponible en la sucursal origen
         $stockOrigen = DB::table('stock')
@@ -317,7 +320,7 @@ class ProductoController extends Controller
         DB::table('stock')->insert([
           'cantidad' => -$request->cantidad,
           'tipo' => 'Transferencia',
-          'observaciones' => 'Salida a sucursal ' . $request->sucursalDestino,
+          'observaciones' => 'Salida a sucursal ' . $nombreDestino,
           'id_producto' => $request->id_producto,
           'id_sucursal' => $request->sucursalOrigen,
           'id_transferencia' => $idTransferencia,
@@ -327,7 +330,7 @@ class ProductoController extends Controller
         DB::table('stock')->insert([
           'cantidad' => $request->cantidad,
           'tipo' => 'Transferencia',
-          'observaciones' => 'Entrada desde sucursal ' . $request->sucursalOrigen,
+          'observaciones' => 'Entrada desde sucursal ' . $nombreOrigen,
           'id_producto' => $request->id_producto,
           'id_sucursal' => $request->sucursalDestino,
           'id_transferencia' => $idTransferencia,
@@ -392,45 +395,45 @@ class ProductoController extends Controller
 
   //producto mas vendido
   public function productoMasVendido()
-{
+  {
     try {
-        $productoMasVendido = DB::table('venta_producto')
-            ->join('producto', 'producto.id_producto', '=', 'venta_producto.id_producto')
-            ->join('venta', 'venta.id_venta', '=', 'venta_producto.id_venta')
-            ->select(
-                'producto.id_producto',
-                'producto.producto as nombre',
-                'producto.costo as precio',
-                'producto.foto as imagen',
-                DB::raw('SUM(venta_producto.cantidad) as total_vendido')
-            )
-            ->groupBy('producto.id_producto', 'producto.producto', 'producto.costo', 'producto.foto')
-            ->orderByDesc('total_vendido')
-            ->limit(1)
-            ->first();
+      $productoMasVendido = DB::table('venta_producto')
+        ->join('producto', 'producto.id_producto', '=', 'venta_producto.id_producto')
+        ->join('venta', 'venta.id_venta', '=', 'venta_producto.id_venta')
+        ->select(
+          'producto.id_producto',
+          'producto.producto as nombre',
+          'producto.costo as precio',
+          'producto.foto as imagen',
+          DB::raw('SUM(venta_producto.cantidad) as total_vendido')
+        )
+        ->groupBy('producto.id_producto', 'producto.producto', 'producto.costo', 'producto.foto')
+        ->orderByDesc('total_vendido')
+        ->limit(1)
+        ->first();
 
-        if (!$productoMasVendido) {
-            return response()->json([
-                'error' => 'No hay datos de ventas disponibles'
-            ], 404);
-        }
-
-        // Convertir foto a URL pública
-        if ($productoMasVendido->imagen) {
-            $productoMasVendido->imagen = Storage::url($productoMasVendido->imagen);
-        } else {
-            $productoMasVendido->imagen = null;
-        }
-
-        // Convertir precio a número
-        $productoMasVendido->precio = (float)str_replace(',', '.', $productoMasVendido->precio);
-
-        return response()->json($productoMasVendido);
-    } catch (\Exception $e) {
+      if (!$productoMasVendido) {
         return response()->json([
-            'error' => 'Error al obtener el producto más vendido',
-            'detalle' => $e->getMessage()
-        ], 500);
+          'error' => 'No hay datos de ventas disponibles'
+        ], 404);
+      }
+
+      // Convertir foto a URL pública
+      if ($productoMasVendido->imagen) {
+        $productoMasVendido->imagen = Storage::url($productoMasVendido->imagen);
+      } else {
+        $productoMasVendido->imagen = null;
+      }
+
+      // Convertir precio a número
+      $productoMasVendido->precio = (float)str_replace(',', '.', $productoMasVendido->precio);
+
+      return response()->json($productoMasVendido);
+    } catch (\Exception $e) {
+      return response()->json([
+        'error' => 'Error al obtener el producto más vendido',
+        'detalle' => $e->getMessage()
+      ], 500);
     }
-}
+  }
 }

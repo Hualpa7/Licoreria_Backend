@@ -75,6 +75,16 @@ class VerificarAlertasStock extends Command
 
                                 $this->info("✓ Alerta creada: {$producto->producto} en {$sucursal->nombre} (Stock: {$stockActual})");
                                 $alertasCreadas++;
+                            } else {
+                                // Si ya existe la alerta, actualizar su stock_actual (y alerta_minima si cambió)
+                                $alertaExistente->stock_actual = $stockActual;
+                                $alertaExistente->alerta_minima = $producto->alerta_minima;
+                                // opcional: actualizar nombre/producto por si cambiaron
+                                $alertaExistente->producto = $producto->producto;
+                                $alertaExistente->nombre = $sucursal->nombre;
+                                $alertaExistente->save();
+
+                                $this->info("↻ Alerta actualizada: {$producto->producto} en {$sucursal->nombre} (Stock: {$stockActual})");
                             }
                         } else {
                             // El stock está OK (igual o mayor a la alerta mínima)

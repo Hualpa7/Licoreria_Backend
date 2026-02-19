@@ -14,7 +14,7 @@
     <p>Hacé clic en el siguiente enlace para establecer una nueva contraseña:</p>
 
     <p>
-      <a href="http://localhost:5173/resetear?token={{ $token }}&email={{ $correo }}">
+      <a href="http://localhost/resetear?token={{ $token }}&email={{ $correo }}">
         Restablecer mi contraseña
       </a>
     </p>
@@ -23,6 +23,6 @@
 
     <hr>
     <small>Si el botón no funciona, copialo en tu navegador:</small>
-    <p>http://localhost:5173/resetear?token={{ $token }}&email={{ $correo }}</p>
+    <p>http://localhost/resetear?token={{ $token }}&email={{ $correo }}</p>
   </body>
 </html>

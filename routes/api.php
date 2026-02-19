@@ -170,7 +170,8 @@ Route::middleware('checkPermiso:agregar permisos')->delete('/permiso/{id}', [Per
 Route::middleware('checkPermiso:agregar permisos')->post('/permiso/vincularPermisoaRol', [PermisoController::class,'vincularPermisoaRol']);
 
 //RUTAS PROTEGIDAS DE STOCK
-Route::resource('/stock',StockController::class);;
+Route::resource('/stock',StockController::class);
+Route::post('/stock/trazabilidad', [StockController::class,'trazabilidad']);
 
 //RUTAS DE PAGO
 // Rutas para pagos
